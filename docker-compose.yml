@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  olx-notifier-bot:
+    # Build the image from the Dockerfile in the current directory
+    build: .
+    # Name the container for easier management
+    container_name: olx-notifier
+    # Restart the container automatically if it stops
+    restart: unless-stopped
+    # Load environment variables from the .env file
+    env_file:
+      - .env
+    # Mount the local 'data' directory into the container's '/app/data' directory
+    # This ensures that our user searches and seen listings persist even if the container is recreated
+    volumes:
+      - ./data:/app/data
