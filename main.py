@@ -38,6 +38,32 @@ ASK_URL, ASK_NAME = range(2)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
+
+class TelegramLogHandler(logging.Handler):
+    """
+    A custom logging handler that sends logs to a specific Telegram chat.
+    """
+    def __init__(self, bot, chat_id):
+        super().__init__()
+        self.bot = bot
+        self.chat_id = chat_id
+
+    def emit(self, record):
+        """
+        Formats and sends the log record.
+        """
+        # We use self.format() to get the formatted log message
+        log_entry = self.format(record)
+        try:
+            # We send the log entry to the admin's chat ID
+            self.bot.send_message(chat_id=self.chat_id, text=f"<pre>{log_entry}</pre>", parse_mode='HTML')
+        except Exception as e:
+            # If logging to Telegram fails, we fall back to printing the error
+            # to the console to avoid a loop of logging errors.
+            print(f"CRITICAL: Failed to send log to Telegram: {e}")
+            print(log_entry)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,47 +85,82 @@ def save_data(data, file_path):
 
 # --- Scraper Logic ---
 def scrape_olx(url):
-    """Scrapes an OLX search page and returns a list of listings."""
+    """
+    Scrapes an OLX search page by parsing the embedded JSON-LD structured data,
+    which is more reliable than scraping HTML tags.
+    """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
     except requests.RequestException as e:
         logger.error(f"Error fetching OLX URL {url}: {e}")
         return []
 
     soup = BeautifulSoup(response.text, 'lxml')
     listings = []
-    # This selector targets the individual listing cards on OLX.pl (might need updating if OLX changes its layout)
-    listing_cards = soup.find_all('div', {'data-cy': 'l-card'})
 
-    for card in listing_cards:
-        try:
-            title_element = card.find('h6')
-            title = title_element.text.strip() if title_element else "No Title"
+    # Find the script tag containing the JSON-LD data
+    json_ld_script = soup.find('script', {'type': 'application/ld+json'})
 
-            price_element = card.find('p', {'data-testid': 'ad-price'})
-            price = price_element.text.strip() if price_element else "No Price"
+    if not json_ld_script:
+        logger.error(f"Could not find JSON-LD script tag on page: {url}")
+        return []
 
-            link_element = card.find('a')
-            # Prepend the domain if the link is relative
-            link = "https://www.olx.pl" + link_element['href'] if link_element and not link_element['href'].startswith('http') else link_element['href']
+    try:
+        # Load the content of the script tag as a JSON object
+        data = json.loads(json_ld_script.string)
 
-            # The listing ID is usually in the parent element's id attribute
-            listing_id = card.get('id')
-            if not listing_id: # Fallback if ID is not on the card itself
-                parent_with_id = card.find_parent(id=True)
-                if parent_with_id:
-                    listing_id = parent_with_id.get('id')
+        # The actual listings are usually in a nested list
+        # Based on your snippet, it's under offers -> offers
+        offer_list = data.get("offers", {}).get("offers", [])
 
+        if not offer_list:
+            logger.warning(f"No offers found in the JSON-LD data for url: {url}")
+            return []
 
-            if title and link and listing_id:
-                listings.append({'id': listing_id, 'title': title, 'price': price, 'url': link})
-        except Exception as e:
-            logger.error(f"Error parsing a listing card: {e}")
-            continue
+        for offer in offer_list:
+            try:
+                # Extract the data for each listing from the JSON object
+                title = offer.get("name", "No Title").strip()
+                price_val = offer.get("price", 0)
+                currency = offer.get("priceCurrency", "PLN")
+                price = f"{price_val} {currency}" if price_val else "No Price"
+                listing_url = offer.get("url")
+
+                if not listing_url:
+                    continue # Skip if there's no URL
+
+                # The most reliable way to get a unique ID is from the URL itself.
+                # e.g., .../oferta/-CID99-ID16AjhA.html -> ID16AjhA
+                # We use a regular expression to find this pattern.
+                id_match = re.search(r'-ID([a-zA-Z0-9]+)\.html', listing_url)
+                if id_match:
+                    listing_id = id_match.group(1) # The part inside the parentheses
+                else:
+                    # Fallback if the URL pattern changes, though less likely
+                    listing_id = listing_url.split('/')[-1]
+
+                # Clean up title from excessive newlines or weird characters
+                title = re.sub(r'\s+', ' ', title).strip()
+
+                listings.append({
+                    'id': listing_id,
+                    'title': title,
+                    'price': price,
+                    'url': listing_url
+                })
+
+            except Exception as e:
+                logger.error(f"Error parsing a single JSON offer: {e}")
+                continue
+
+    except json.JSONDecodeError:
+        logger.error(f"Failed to decode JSON from page: {url}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during JSON parsing: {e}")
 
     return listings
 
@@ -287,9 +348,38 @@ def delete_search_callback(update: Update, context: CallbackContext):
 
 # --- Main Application Setup ---
 def main():
-    """Start the bot."""
+    """Start the bot and set up logging."""
+    # --- Load Admin Chat ID from environment variable ---
+    ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+    if not ADMIN_CHAT_ID:
+        # We don't raise an error, so the bot can run without a log bot if desired.
+        logger.warning("ADMIN_CHAT_ID not set. Logs will not be sent to Telegram.")
+
     updater = Updater(TOKEN, use_context=True)
     dispatcher = updater.dispatcher
+
+    # --- NEW: Set up Telegram logging ---
+    if ADMIN_CHAT_ID:
+        try:
+            # Create an instance of our custom handler
+            # We pass the bot instance and the admin's chat ID
+            telegram_handler = TelegramLogHandler(bot=updater.bot, chat_id=ADMIN_CHAT_ID)
+
+            # Set the level of logs you want to receive.
+            # WARNING, ERROR, and CRITICAL are good choices to avoid spam.
+            telegram_handler.setLevel(logging.WARNING)
+
+            # Create a formatter to make the logs look nice
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            telegram_handler.setFormatter(formatter)
+
+            # Add the handler to the root logger
+            logging.getLogger().addHandler(telegram_handler)
+
+            logger.warning("Telegram logging handler successfully configured.") # This message will be a test
+        except Exception as e:
+            logger.error(f"Failed to configure Telegram logging handler: {e}")
+    # --- END of new logging section ---
 
     # Add conversation handler for adding searches
     add_handler = ConversationHandler(
@@ -307,10 +397,10 @@ def main():
     dispatcher.add_handler(CommandHandler("list", list_searches))
     dispatcher.add_handler(CommandHandler("delete", delete_search_start))
     dispatcher.add_handler(CallbackQueryHandler(delete_search_callback, pattern='^delete_'))
-    
+
     # Set up the background job
     job_queue = updater.job_queue
-    job_queue.run_repeating(check_for_new_listings, interval=CHECK_INTERVAL, first=10) # Run first check after 10s
+    job_queue.run_repeating(check_for_new_listings, interval=CHECK_INTERVAL, first=10)
 
     # Start the Bot
     updater.start_polling()
