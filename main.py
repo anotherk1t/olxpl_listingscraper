@@ -84,13 +84,61 @@ def save_data(data, file_path):
         json.dump(data, f, indent=4)
 
 # --- Scraper Logic ---
+def _parse_html_cards(soup):
+    """
+    Fallback function to parse listings directly from HTML cards if JSON-LD fails.
+    This is less stable but necessary if the site structure changes.
+    """
+    listings = []
+    # Find all div elements with the attribute data-cy="l-card"
+    listing_cards = soup.find_all('div', {'data-cy': 'l-card'})
+    logger.info(f"HTML Fallback: Found {len(listing_cards)} listing cards.")
+
+    for card in listing_cards:
+        try:
+            listing_id = card.get('id')
+            if not listing_id:
+                continue # Skip cards without an ID
+
+            # Find the title element, which is in an h4 tag
+            title_element = card.find('h4')
+            title = title_element.text.strip() if title_element else "No Title"
+
+            # Find the price element
+            price_element = card.find('p', {'data-testid': 'ad-price'})
+            price = price_element.text.strip() if price_element else "No Price"
+
+            # Find the link element and construct the full URL
+            link_element = card.find('a')
+            if link_element and 'href' in link_element.attrs:
+                partial_url = link_element['href']
+                # Prepend the domain if the link is relative
+                full_url = "https://www.olx.pl" + partial_url if partial_url.startswith('/') else partial_url
+            else:
+                full_url = None
+
+            if listing_id and title and full_url:
+                listings.append({
+                    'id': listing_id,
+                    'title': title,
+                    'price': price,
+                    'url': full_url
+                })
+        except Exception as e:
+            logger.error(f"Error parsing an HTML listing card: {e}")
+            continue
+    return listings
+
 def scrape_olx(url):
     """
-    Scrapes an OLX search page by parsing the embedded JSON-LD structured data,
-    which is more reliable than scraping HTML tags.
+    Scrapes an OLX search page using a primary (JSON-LD) and fallback (HTML parsing) method.
     """
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Connection': 'keep-alive'
     }
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -102,65 +150,42 @@ def scrape_olx(url):
     soup = BeautifulSoup(response.text, 'lxml')
     listings = []
 
-    # Find the script tag containing the JSON-LD data
+    # --- Primary Method: Try parsing JSON-LD first ---
     json_ld_script = soup.find('script', {'type': 'application/ld+json'})
+    if json_ld_script:
+        try:
+            data = json.loads(json_ld_script.string)
+            # This path might change, but it's a common pattern
+            offer_list = data.get("offers", {}).get("offers", [])
 
-    if not json_ld_script:
-        logger.error(f"Could not find JSON-LD script tag on page: {url}")
-        return []
+            if offer_list:
+                logger.info("Successfully found listings via JSON-LD method.")
+                for offer in offer_list:
+                    # (Code from previous JSON-LD version)
+                    listing_url = offer.get("url")
+                    if not listing_url: continue
 
-    try:
-        # Load the content of the script tag as a JSON object
-        data = json.loads(json_ld_script.string)
+                    id_match = re.search(r'-ID([a-zA-Z0-9]+)\.html', listing_url)
+                    listing_id = id_match.group(1) if id_match else listing_url.split('/')[-1]
 
-        # The actual listings are usually in a nested list
-        # Based on your snippet, it's under offers -> offers
-        offer_list = data.get("offers", {}).get("offers", [])
+                    title = re.sub(r'\s+', ' ', offer.get("name", "No Title")).strip()
+                    price = f"{offer.get('price', 0)} {offer.get('priceCurrency', 'PLN')}"
 
-        if not offer_list:
-            logger.warning(f"No offers found in the JSON-LD data for url: {url}")
-            return []
+                    listings.append({'id': listing_id, 'title': title, 'price': price, 'url': listing_url})
+                return listings # Return immediately if JSON-LD was successful
 
-        for offer in offer_list:
-            try:
-                # Extract the data for each listing from the JSON object
-                title = offer.get("name", "No Title").strip()
-                price_val = offer.get("price", 0)
-                currency = offer.get("priceCurrency", "PLN")
-                price = f"{price_val} {currency}" if price_val else "No Price"
-                listing_url = offer.get("url")
+        except (json.JSONDecodeError, AttributeError) as e:
+            logger.warning(f"JSON-LD parsing failed: {e}. Attempting HTML fallback.")
+    else:
+        logger.warning("JSON-LD script not found. Attempting HTML fallback.")
 
-                if not listing_url:
-                    continue # Skip if there's no URL
 
-                # The most reliable way to get a unique ID is from the URL itself.
-                # e.g., .../oferta/-CID99-ID16AjhA.html -> ID16AjhA
-                # We use a regular expression to find this pattern.
-                id_match = re.search(r'-ID([a-zA-Z0-9]+)\.html', listing_url)
-                if id_match:
-                    listing_id = id_match.group(1) # The part inside the parentheses
-                else:
-                    # Fallback if the URL pattern changes, though less likely
-                    listing_id = listing_url.split('/')[-1]
-
-                # Clean up title from excessive newlines or weird characters
-                title = re.sub(r'\s+', ' ', title).strip()
-
-                listings.append({
-                    'id': listing_id,
-                    'title': title,
-                    'price': price,
-                    'url': listing_url
-                })
-
-            except Exception as e:
-                logger.error(f"Error parsing a single JSON offer: {e}")
-                continue
-
-    except json.JSONDecodeError:
-        logger.error(f"Failed to decode JSON from page: {url}")
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during JSON parsing: {e}")
+    # --- Fallback Method: Parse HTML cards if JSON-LD fails or is empty ---
+    logger.info("Executing HTML fallback parsing logic.")
+    listings = _parse_html_cards(soup)
+    
+    if not listings:
+        logger.warning("Fallback HTML parsing also failed to find any listings.")
 
     return listings
 
