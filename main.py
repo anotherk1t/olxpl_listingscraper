@@ -2,7 +2,9 @@ import logging
 import os
 import json
 import time
+import re
 import requests
+import google.generativeai as genai
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,7 +16,13 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-import hashlib
+
+# --- Logging Setup ---
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 # Load the bot token from an environment variable for security
@@ -22,22 +30,42 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No TELEGRAM_BOT_TOKEN environment variable set!")
 
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    logger.info("Gemini AI configured successfully")
+else:
+    logger.warning("GEMINI_API_KEY not set. Price analysis will be disabled.")
+
+
 # --- Constants ---
 # File paths for storing data
 DATA_DIR = "data"
 USER_SEARCHES_FILE = os.path.join(DATA_DIR, "user_searches.json")
 SEEN_LISTINGS_FILE = os.path.join(DATA_DIR, "seen_listings.json")
+MARKET_DATA_FILE = os.path.join(DATA_DIR, "market_data.json")
 
 # How often to check for new listings (in seconds)
 CHECK_INTERVAL = 300  # 5 minutes
+MONITOR_INTERVAL = 1200 # 20 minutes
 
 # Conversation states for adding a search
 ASK_URL, ASK_NAME = range(2)
 
-# --- Logging Setup ---
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
+
+
+def _parse_price(price_str):
+    """Removes currency symbols and text to return a clean float from a price string."""
+    if not price_str:
+        return 0.0
+    try:
+        # Remove all non-digit characters except for a comma or dot
+        cleaned_str = re.sub(r'[^\d,.]', '', price_str)
+        # Replace comma with a dot for float conversion
+        cleaned_str = cleaned_str.replace(',', '.')
+        return float(cleaned_str)
+    except (ValueError, TypeError):
+        return 0.0
 
 class TelegramLogHandler(logging.Handler):
     """
@@ -64,7 +92,7 @@ class TelegramLogHandler(logging.Handler):
             print(log_entry)
 
 
-logger = logging.getLogger(__name__)
+
 
 
 # --- Data Handling ---
@@ -196,6 +224,9 @@ def check_for_new_listings(context: CallbackContext):
     logger.info("Running periodic check for new listings...")
     user_searches = load_data(USER_SEARCHES_FILE)
     seen_listings = load_data(SEEN_LISTINGS_FILE)
+    market_data = load_data(MARKET_DATA_FILE) 
+
+    market_data_changed = False
 
     for chat_id_str, searches in user_searches.items():
         chat_id = int(chat_id_str)
@@ -216,14 +247,25 @@ def check_for_new_listings(context: CallbackContext):
                     continue
 
                 new_listings_found = False
+                
                 for listing in reversed(current_listings): # Reverse to send oldest new first
                     if listing['id'] not in seen_listings[search_key]:
+                        ai_analysis = None
+                        if GEMINI_API_KEY:
+                            # Get existing market data for this search to provide context
+                            existing_market_data = market_data.get(search_key, {})
+                            ai_analysis = analyze_listing_price_with_ai(listing, search_name, existing_market_data)
+ 
                         message = (
                             f"✨ *New Listing Found for '{search_name}'* ✨\n\n"
                             f"*{listing['title']}*\n\n"
                             f"💰 *Price:* {listing['price']}\n"
                             f"🔗 [View Listing]({listing['url']})"
                         )
+                        if ai_analysis:
+                            message += format_price_analysis_message(ai_analysis)
+
+
                         context.bot.send_message(
                             chat_id=chat_id,
                             text=message,
@@ -232,7 +274,26 @@ def check_for_new_listings(context: CallbackContext):
                         )
                         seen_listings[search_key].append(listing['id'])
                         new_listings_found = True
-                        time.sleep(1) # Sleep briefly to avoid hitting Telegram rate limits
+
+
+                        if search_key not in market_data:
+                            market_data[search_key] = {}
+                        
+                        current_timestamp = int(time.time())
+                        market_data[search_key][listing['id']] = {
+                            'title': listing['title'],
+                            'initial_price': _parse_price(listing['price']),
+                            'url': listing['url'],
+                            'status': 'active', # It's active because we just found it
+                            'first_seen_timestamp': current_timestamp,
+                            'last_seen_timestamp': current_timestamp,
+                            'removed_timestamp': None, # Not removed yet
+                            'ai_analysis': ai_analysis 
+                        }
+
+                        market_data_changed = True
+
+                        time.sleep(5) # Sleep briefly to avoid hitting Telegram rate limits
 
                 if new_listings_found:
                     # Prune old seen listings to keep the file size manageable
@@ -245,6 +306,61 @@ def check_for_new_listings(context: CallbackContext):
                     chat_id=chat_id,
                     text=f"⚠️ Error checking your search '{search_name}'. I'll try again later."
                 )
+                
+    if market_data_changed:
+        logger.info("New listings found, saving updated market data.")
+        save_data(market_data, MARKET_DATA_FILE)
+
+
+def monitor_existing_listings(context: CallbackContext):
+    """
+    Periodically checks the status of listings stored in the market_data.json file.
+    If a listing is no longer on the site, its status is updated to 'inactive/sold'.
+    """
+    logger.info("Running periodic check to monitor existing listings...")
+    user_searches = load_data(USER_SEARCHES_FILE)
+    market_data = load_data(MARKET_DATA_FILE)
+    data_was_changed = False
+
+    for chat_id_str, searches in user_searches.items():
+        for search_name, search_url in searches.items():
+            search_key = f"{chat_id_str}_{search_name}"
+
+            if search_key not in market_data:
+                continue # No listings being tracked for this search yet
+
+            logger.info(f"Monitoring listings for search: '{search_name}'")
+            try:
+                # Get a simple set of all currently active listing IDs from the live page
+                live_listings = scrape_olx(search_url)
+                live_listing_ids = {item['id'] for item in live_listings}
+
+                if not live_listing_ids:
+                    logger.warning(f"Got no live listings for '{search_name}' during monitoring check. Skipping status update for this search.")
+                    continue
+
+                # Check our stored listings against the live ones
+                for listing_id, listing_data in market_data[search_key].items():
+                    # Only check listings that are currently marked as 'active'
+                    if listing_data['status'] == 'active':
+                        current_timestamp = int(time.time())
+                        if listing_id in live_listing_ids:
+                            # It's still active, just update its 'last_seen' timestamp
+                            market_data[search_key][listing_id]['last_seen_timestamp'] = current_timestamp
+                            data_was_changed = True
+                        else:
+                            # It's gone! Mark as inactive and record when it was removed.
+                            logger.info(f"Listing '{listing_data['title']}' ({listing_id}) is no longer active. Marking as inactive/sold.")
+                            market_data[search_key][listing_id]['status'] = 'inactive/sold'
+                            market_data[search_key][listing_id]['removed_timestamp'] = current_timestamp
+                            data_was_changed = True
+            except Exception as e:
+                logger.error(f"An error occurred while monitoring search '{search_name}': {e}")
+
+    if data_was_changed:
+        logger.info("Saving updated market data.")
+        save_data(market_data, MARKET_DATA_FILE)
+
 
 # --- Bot Command Handlers ---
 def start(update: Update, context: CallbackContext):
@@ -366,6 +482,11 @@ def delete_search_callback(update: Update, context: CallbackContext):
             del seen_listings[search_key]
             save_data(seen_listings, SEEN_LISTINGS_FILE)
 
+        market_data = load_data(MARKET_DATA_FILE)
+        if search_key in market_data:
+            del market_data[search_key]
+            save_data(market_data, MARKET_DATA_FILE)
+
         query.edit_message_text(text=f"✅ Search '{search_name_to_delete}' has been deleted.")
     else:
         query.edit_message_text(text="Could not find that search. It might have been already deleted.")
@@ -426,6 +547,9 @@ def main():
     # Set up the background job
     job_queue = updater.job_queue
     job_queue.run_repeating(check_for_new_listings, interval=CHECK_INTERVAL, first=10)
+   
+    # We'll start it after 60 seconds to stagger it from the first job.
+    job_queue.run_repeating(monitor_existing_listings, interval=MONITOR_INTERVAL, first=60)
 
     # Start the Bot
     updater.start_polling()
@@ -434,6 +558,127 @@ def main():
     # Run the bot until you press Ctrl-C
     updater.idle()
 
+
+def analyze_listing_price_with_ai(listing, search_name, market_data_for_search):
+    """
+    Uses Google Gemini to analyze if a listing's price is reasonable.
+    Returns a dict with analysis results or None if AI is not available.
+    """
+    if not GEMINI_API_KEY:
+        return None
+    
+    try:
+        # Prepare market context from previous listings
+        market_context = ""
+        if market_data_for_search:
+            prices = []
+            for item_data in market_data_for_search.values():
+                if item_data.get('initial_price', 0) > 0:
+                    prices.append(item_data['initial_price'])
+            
+            if len(prices) >= 3:  # Only provide context if we have enough data
+                avg_price = sum(prices) / len(prices)
+                min_price = min(prices)
+                max_price = max(prices)
+                market_context = f"""
+Market context for '{search_name}':
+- Average price from previous listings: {avg_price:.2f} PLN
+- Price range: {min_price:.2f} - {max_price:.2f} PLN
+- Number of previous listings: {len(prices)}
+"""
+
+        # Extract numeric price from the listing
+        numeric_price = _parse_price(listing['price'])
+        
+        # Create the prompt for Gemini
+        prompt = f"""
+You are a price analysis expert for online marketplace listings. Analyze this OLX.pl listing:
+
+Title: {listing['title']}
+Price: {listing['price']} (numeric: {numeric_price} PLN)
+Search category: {search_name}
+
+{market_context}
+
+Please analyze if this price is:
+1. HIGH (overpriced)
+2. FAIR (reasonable market price)  
+3. LOW (good deal/underpriced)
+
+Provide your response in this EXACT JSON format:
+{{
+    "price_assessment": "HIGH|FAIR|LOW",
+    "confidence": "HIGH|MEDIUM|LOW",
+    "short_analysis": "Brief 1-2 sentence explanation focusing on why the price is high/fair/low. Mention any potential issues or benefits."
+}}
+
+Consider factors like:
+- Item condition (if mentioned)
+- Brand/model (if identifiable)
+- Market comparison (if context provided)
+- Potential red flags (too cheap might indicate issues, too expensive might be overpriced)
+- Typical pricing for this category in Poland
+
+Keep the analysis concise and practical for a buyer.
+"""
+
+        # Initialize the model
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        
+        # Generate the response
+        response = model.generate_content(prompt)
+        
+        # Parse the JSON response
+        try:
+            # Extract JSON from the response text
+            response_text = response.text.strip()
+            # Remove markdown code blocks if present
+            if response_text.startswith('```json'):
+                response_text = response_text.replace('```json', '').replace('```', '').strip()
+            elif response_text.startswith('```'):
+                response_text = response_text.replace('```', '').strip()
+            
+            analysis_result = json.loads(response_text)
+            
+            # Validate the response format
+            required_fields = ['price_assessment', 'confidence', 'short_analysis']
+            if all(field in analysis_result for field in required_fields):
+                logger.info(f"AI analysis completed for listing: {listing['title'][:50]}...")
+                return analysis_result
+            else:
+                logger.warning(f"AI response missing required fields: {analysis_result}")
+                return None
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AI response as JSON: {e}")
+            logger.error(f"Raw response: {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error during AI price analysis: {e}")
+        return None
+
+def format_price_analysis_message(analysis):
+    """
+    Formats the AI analysis into a readable message part.
+    """
+    if not analysis:
+        return ""
+    
+    # Choose emoji based on assessment
+    emoji_map = {
+        "HIGH": "🔴",
+        "FAIR": "🟡", 
+        "LOW": "🟢"
+    }
+    
+    assessment_emoji = emoji_map.get(analysis['price_assessment'], "⚪")
+    confidence = analysis.get('confidence', 'MEDIUM').lower()
+    
+    analysis_text = f"\n\n{assessment_emoji} **AI Price Analysis** ({confidence} confidence):\n"
+    analysis_text += f"*{analysis['short_analysis']}*"
+    
+    return analysis_text
 
 if __name__ == '__main__':
     main()

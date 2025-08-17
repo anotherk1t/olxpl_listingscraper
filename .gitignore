@@ -4,6 +4,8 @@ __pycache__/
 *.pyo
 *.pyd
 .env
+.go
+.govno.py 
 
 # Docker
 data/

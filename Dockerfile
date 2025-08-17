@@ -10,6 +10,7 @@ COPY requirements.txt .
 # Install any needed packages specified in requirements.txt
 # --no-cache-dir: Disables the cache, which reduces the image size
 # --trusted-host pypi.python.org: Can help avoid SSL issues in some networks
+RUN pip install google-generativeai
 RUN pip install --no-cache-dir --trusted-host pypi.python.org -r requirements.txt
 
 # Copy the rest of the application's code into the container at /app
