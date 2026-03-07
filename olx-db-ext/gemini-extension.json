@@ -1,0 +1,14 @@
+{
+  "name": "olx-db-ext",
+  "version": "1.0.0",
+  "mcpServers": {
+    "olxDb": {
+      "command": "node",
+      "args": ["${extensionPath}${/}server.js"],
+      "cwd": "${extensionPath}",
+      "env": {
+        "OLX_DB_PATH": "${extensionPath}${/}..${/}data${/}olx.db"
+      }
+    }
+  }
+}

@@ -13,3 +13,6 @@ services:
     # This ensures that our user searches and seen listings persist even if the container is recreated
     volumes:
       - ./data:/app/data
+    # Allow the container to reach the host machine (where gemini-proxy runs)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -17,9 +17,11 @@
 
 ## 🎯 Overview
 
-**OLX Poland Listing Scraper** is a production-ready Telegram bot designed to automate the monitoring of OLX.pl marketplace listings. It combines robust web scraping techniques with cutting-edge AI to deliver real-time notifications enriched with intelligent price assessments.
+Buying used goods is a great way to save money on transportation, devices, and everyday items. However, searching on platforms like OLX can be frustrating because you rarely search for one specific, exact product. Instead, you usually have a list of requirements, and multiple products from various brands might be suitable for you. 
 
-Whether you're hunting for vintage cameras, electronics, or any other items, this bot does the heavy lifting — continuously scanning listings and alerting you the moment something new appears.
+This project aims to solve this problem! **OLX Poland Listing Scraper** is an intelligent Telegram bot featuring an automatic link builder to help you avoid unwanted listings and easily find the best offers matching your broad requirements. By combining robust web scraping techniques with cutting-edge AI, it delivers real-time notifications enriched with intelligent price assessments.
+
+Whether you're hunting for a vintage camera, a decent gaming laptop, or any other items, this bot does the heavy lifting — continuously scanning listings and alerting you the moment a relevant deal appears.
 
 ---
 
@@ -29,6 +31,7 @@ Whether you're hunting for vintage cameras, electronics, or any other items, thi
 |---------|-------------|
 | 🔍 **Real-Time Monitoring** | Automatically checks for new listings every 5 minutes |
 | 🤖 **AI-Powered Analysis** | Leverages Google Gemini to evaluate if prices are HIGH, FAIR, or LOW |
+| 🌍 **Multi-Language Support** | Automatically detects and speaks English, Polish, Russian, and Ukrainian |
 | 📱 **Telegram Integration** | Seamless notifications with inline keyboard interactions |
 | 🔄 **Dual Scraping Strategy** | Primary JSON-LD parsing with HTML fallback for resilience |
 | 📊 **Market Intelligence** | Tracks listing lifecycle and builds historical price data |
@@ -54,9 +57,9 @@ Whether you're hunting for vintage cameras, electronics, or any other items, thi
 │         │               │                    │              │
 │         ▼               ▼                    ▼              │
 │  ┌─────────────────────────────────────────────────────────┐│
-│  │              JSON Data Persistence Layer                ││
-│  │  • user_searches.json  • seen_listings.json             ││
-│  │  • market_data.json                                     ││
+│  │                     SQLite Database                     ││
+│  │  • user_prefs         • searches         • listings     ││
+│  │  • search_urls        • feedback                        ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -140,20 +143,23 @@ python main.py
 | Command | Description |
 |---------|-------------|
 | `/start` | Initialize the bot and see welcome message |
-| `/add` | Add a new OLX search URL to monitor |
+| `/add` | Interactive flow to add a Link Monitor, Precision Search, or Broad Deal Finder |
+| `/edit` | Modify parameters of an existing search |
 | `/list` | View all your active search queries |
 | `/delete` | Remove a search from monitoring |
+| `/language` | Change the bot language (EN, PL, RU, UK) |
+| `/slopgest` | Generate an AI summary and analysis of your listings |
+| `/resume` | Review pending listings from Precision Searches |
 | `/help` | Display available commands |
 
 ### Workflow
 
 ```
-1. Search for items on OLX.pl
-2. Copy the search URL
-3. Send /add to the bot
-4. Provide a name for your search
-5. Paste the OLX URL
-6. Receive notifications for new listings! 🎉
+1. Send /add to the bot
+2. Choose your monitoring mode via inline buttons (Link Monitor, Precision Search, Broad Deal Finder)
+3. Describe what you're looking for or simply paste an OLX.pl URL
+4. Approve the AI-generated search parameters
+5. Receive notifications for new listings! 🎉
 ```
 
 ### Sample Notification
@@ -223,9 +229,7 @@ The Gemini integration provides:
 
 ```
 data/
-├── user_searches.json    # User search configurations
-├── seen_listings.json    # Listing deduplication cache
-└── market_data.json      # Historical pricing data
+└── olx_scraper.db    # SQLite database holding user prefs, searches, and listings
 ```
 
 ---
@@ -234,7 +238,16 @@ data/
 
 ```
 olxpl_listingscraper/
-├── main.py              # Core application (684 lines)
+├── main.py              # Application entry point and orchestrator
+├── config.py            # Global constants and state definitions
+├── db.py                # SQLite wrapper and models
+├── handlers.py          # Telegram command and callback handlers
+├── jobs.py              # Background scraping and monitoring tasks
+├── i18n.py              # Localization helper
+├── llm.py               # Google Gemini integration functions
+├── locales/             # JSON translation files (EN, PL, RU, UK)
+├── formatters.py        # Message formatting functions
+├── url_builder.py       # OLX URL construction logic
 ├── Dockerfile           # Container definition
 ├── docker-compose.yml   # Orchestration config
 ├── requirements.txt     # Python dependencies
@@ -256,7 +269,7 @@ olxpl_listingscraper/
 
 ## 🗺️ Roadmap
 
-- [ ] Multi-language support
+- [x] Multi-language support
 - [ ] Price drop notifications
 - [ ] Export to CSV/JSON
 - [ ] Web dashboard interface

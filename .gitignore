@@ -6,5 +6,31 @@ __pycache__/
 .env
 .go
 
-# Docker
+# Node
+node_modules/
+
+# Docker / Data
 data/
+*.db
+# Environments
+.env
+venv/
+env/
+.venv/
+
+# IDEs
+.idea/
+.vscode/
+
+# Logs
+*.log
+bot.log
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+
+# Docs
+olx_url_structure.md
