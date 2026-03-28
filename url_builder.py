@@ -14,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import CONFIG, HTTP_HEADERS, OLX_CATEGORIES, OLX_URL_CONTEXT
-from llm import ask_gemini
+from llm import ask_llm
 from scraper import _parse_json_ld, _parse_html_cards
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ async def validate_and_correct_url(
             f"Reply with ONLY the corrected URL, nothing else."
         )
 
-        corrected = (await ask_gemini(fix_prompt)).strip()
+        corrected = (await ask_llm(fix_prompt)).strip()
         corrected = re.sub(r"^```.*\n?", "", corrected, flags=re.MULTILINE).strip()
         if corrected.startswith("https://www.olx.pl"):
             current_url = corrected

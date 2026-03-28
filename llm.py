@@ -1,7 +1,7 @@
 """
 OLX Scraper — LLM Integration
 
-All Gemini CLI interactions go through the Node.js sidecar proxy.
+All LLM calls go through the Copilot CLI proxy (Node.js sidecar on the host).
 """
 
 import asyncio
@@ -12,68 +12,63 @@ from typing import Optional
 
 import requests as _requests
 
-from config import CONFIG, GEMINI_PROXY_URL
+from config import CONFIG, LLM_PROXY_URL
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# GEMINI CLI PROXY CALL
+# COPILOT CLI PROXY CALL
 # ============================================================================
 
-def _ask_gemini_sync(
+def _ask_llm_sync(
     prompt: str,
     *,
     model: str = None,
-    extensions: list[str] = None,
-    approval_mode: str = None,
+    mcp: bool = False,
     timeout: int = 120,
 ) -> str:
-    """Synchronous Gemini proxy call (runs in thread via ask_gemini)."""
+    """Synchronous Copilot proxy call (runs in thread via ask_llm)."""
     try:
         body = {"prompt": prompt}
         if model:
             body["model"] = model
-        if extensions:
-            body["extensions"] = extensions
-        if approval_mode:
-            body["approval_mode"] = approval_mode
+        if mcp:
+            body["mcp"] = True
         resp = _requests.post(
-            GEMINI_PROXY_URL,
+            LLM_PROXY_URL,
             json=body,
             timeout=timeout,
         )
         resp.raise_for_status()
         data = resp.json()
         if data.get("error"):
-            logger.warning(f"Gemini proxy warning: {data['error']}")
+            logger.warning(f"LLM proxy warning: {data['error']}")
         return data.get("response", "")
     except _requests.exceptions.ConnectionError:
-        logger.error(f"Gemini proxy unreachable at {GEMINI_PROXY_URL}")
+        logger.error(f"LLM proxy unreachable at {LLM_PROXY_URL}")
         return ""
     except _requests.exceptions.Timeout:
-        logger.error("Gemini proxy request timed out")
+        logger.error("LLM proxy request timed out")
         return ""
     except Exception as e:
-        logger.error(f"Unexpected error calling Gemini proxy: {e}")
+        logger.error(f"Unexpected error calling LLM proxy: {e}")
         return ""
 
 
-async def ask_gemini(
+async def ask_llm(
     prompt: str,
     *,
     model: str = None,
-    extensions: list[str] = None,
-    approval_mode: str = None,
+    mcp: bool = False,
     timeout: int = 120,
 ) -> str:
-    """Non-blocking Gemini proxy call — runs sync HTTP in a thread."""
+    """Non-blocking Copilot proxy call — runs sync HTTP in a thread."""
     return await asyncio.to_thread(
-        _ask_gemini_sync,
+        _ask_llm_sync,
         prompt,
         model=model,
-        extensions=extensions,
-        approval_mode=approval_mode,
+        mcp=mcp,
         timeout=timeout,
     )
 
@@ -101,7 +96,7 @@ async def _llm_batch_call(batch: list, kw_str: str, with_details: bool) -> list:
         f"Reply with ONLY a comma-separated list of the numbers that match the requirements "
         f"(e.g. '1,3,5'). If none match, reply with '0'. No explanation."
     )
-    response = (await ask_gemini(prompt)).strip()
+    response = (await ask_llm(prompt)).strip()
     if response == "0" or not response:
         return []
     try:
@@ -203,7 +198,7 @@ async def get_cheap_summaries(
         + "\n".join(lines)
     )
     try:
-        resp = (await ask_gemini(prompt)).strip()
+        resp = (await ask_llm(prompt)).strip()
         match = re.search(r"\[.*\]", resp, re.DOTALL)
         if match:
             results = json.loads(match.group())
@@ -272,7 +267,7 @@ async def run_slopsearch_llm(
         f"Return ONLY valid JSON. No markdown fences, no explanation."
     )
 
-    response_text = await ask_gemini(prompt)
+    response_text = await ask_llm(prompt)
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if not json_match:
         return None
@@ -343,7 +338,7 @@ async def run_cheap_mode_llm(user_query: str, categories: list = None) -> Option
         f"max_price, min_price, base_path, condition, browse_category, custom_filters, location, location_radius should be null if not specified. "
         f"No markdown, no explanation."
     )
-    response_text = await ask_gemini(prompt)
+    response_text = await ask_llm(prompt)
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if not json_match:
         return None
@@ -373,7 +368,7 @@ async def run_cheap_feedback_llm(
         f'Return ONLY a JSON array: ["Model A", "Model B", ...]\n'
         f"No markdown, no explanation."
     )
-    response_text = await ask_gemini(prompt)
+    response_text = await ask_llm(prompt)
     arr_match = re.search(r"\[.*\]", response_text, re.DOTALL)
     if not arr_match:
         return None
@@ -423,13 +418,11 @@ Reply with ONLY the markdown report, no preamble.
 
 
 async def run_slopgest_llm(chat_id: str) -> str:
-    """Run the /slopgest analysis using gemini-3.1-pro-preview with DB tool access."""
+    """Run the /slopgest analysis with MCP database tool access."""
     prompt = _SLOPGEST_PROMPT.format(chat_id=chat_id)
-    response = await ask_gemini(
+    response = await ask_llm(
         prompt,
-        model="gemini-3.1-pro-preview",
-        extensions=["olx-db-ext"],
-        approval_mode="yolo",
+        mcp=True,
         timeout=180,
     )
     return response.strip() if response else ""

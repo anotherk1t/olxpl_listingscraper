@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "olx-db": {
+      "command": "node",
+      "args": ["olx-db-ext/server.js"],
+      "cwd": ".",
+      "env": {
+        "OLX_DB_PATH": "./data/olx.db"
+      }
+    }
+  }
+}

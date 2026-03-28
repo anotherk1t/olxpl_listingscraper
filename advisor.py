@@ -13,7 +13,7 @@ from typing import Optional
 
 from scraper import scrape_olx_page
 from url_builder import product_to_url, category_browse_url
-from llm import ask_gemini
+from llm import ask_llm
 from config import CONFIG
 import db
 
@@ -243,7 +243,7 @@ async def run_advisor_llm(search: dict, probe_data: dict, alt_data: dict) -> Opt
         f"No markdown, no explanation."
     )
 
-    response_text = await ask_gemini(prompt)
+    response_text = await ask_llm(prompt)
     arr_match = re.search(r"\[.*\]", response_text, re.DOTALL)
     if not arr_match:
         logger.warning(f"Advisor LLM returned no JSON array: {response_text[:200]}")

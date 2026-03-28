@@ -1,313 +1,79 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/Telegram-Bot_API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
-  <img src="https://img.shields.io/badge/Google-Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI">
-  <img src="https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-  <img src="https://img.shields.io/badge/License-GPL--3.0-brightgreen?style=for-the-badge" alt="License">
-</p>
+# OLX Poland Listing Scraper
 
-<h1 align="center">🛒 OLX Poland Listing Scraper</h1>
+OLX Poland Listing Scraper is an intelligent, AI-powered Telegram bot that monitors OLX.pl listings in real-time. It provides instant notifications with AI-driven price analysis to help you never miss a deal again.
 
-<p align="center">
-  <b>An intelligent, AI-powered Telegram bot that monitors OLX.pl listings in real-time</b><br>
-  <i>Never miss a deal again — get instant notifications with AI-driven price analysis</i>
-</p>
+## Why?
 
----
+Buying used goods is a great way to save money on transportation, devices, and everyday items. However, searching on platforms like OLX can be frustrating because you rarely search for one specific, exact product. Instead, you usually have a list of requirements, and multiple products from various brands might be suitable for you.
 
-## 🎯 Overview
-
-Buying used goods is a great way to save money on transportation, devices, and everyday items. However, searching on platforms like OLX can be frustrating because you rarely search for one specific, exact product. Instead, you usually have a list of requirements, and multiple products from various brands might be suitable for you. 
-
-This project aims to solve this problem! **OLX Poland Listing Scraper** is an intelligent Telegram bot featuring an automatic link builder to help you avoid unwanted listings and easily find the best offers matching your broad requirements. By combining robust web scraping techniques with cutting-edge AI, it delivers real-time notifications enriched with intelligent price assessments.
+This project aims to solve this problem! It features an automatic link builder to help you avoid unwanted listings and easily find the best offers matching your broad requirements. By combining robust web scraping techniques with cutting-edge AI, it delivers real-time notifications enriched with intelligent price assessments.
 
 Whether you're hunting for a vintage camera, a decent gaming laptop, or any other items, this bot does the heavy lifting — continuously scanning listings and alerting you the moment a relevant deal appears.
 
----
+## Features
+- Real-time monitoring automatically checking for new listings every 5 minutes.
+- AI-powered analysis using Google Gemini to evaluate if prices are HIGH, FAIR, or LOW.
+- Multi-language support automatically detecting English, Polish, Russian, and Ukrainian.
+- Telegram integration for seamless notifications and inline keyboard interactions.
+- Dual scraping strategy with JSON-LD parsing and HTML fallback for resilience.
+- Market intelligence tracking listing lifecycle and building historical price data.
+- Docker-ready one-command deployment.
+- Persistent SQLite-based storage for user preferences and listings.
 
-## ✨ Key Features
+## Roadmap & Planned Features
+- **Price drop notifications**: Alerting users when watched items drop in price.
+- **Export capabilities**: Exporting data to CSV/JSON formats.
+- **Web interface**: Building a web dashboard for easier management.
+- **Redis caching**: Implementing Redis for improved performance.
+- **Metrics endpoint**: Adding Prometheus metrics for monitoring.
 
-| Feature | Description |
-|---------|-------------|
-| 🔍 **Real-Time Monitoring** | Automatically checks for new listings every 5 minutes |
-| 🤖 **AI-Powered Analysis** | Leverages Google Gemini to evaluate if prices are HIGH, FAIR, or LOW |
-| 🌍 **Multi-Language Support** | Automatically detects and speaks English, Polish, Russian, and Ukrainian |
-| 📱 **Telegram Integration** | Seamless notifications with inline keyboard interactions |
-| 🔄 **Dual Scraping Strategy** | Primary JSON-LD parsing with HTML fallback for resilience |
-| 📊 **Market Intelligence** | Tracks listing lifecycle and builds historical price data |
-| 🐳 **Docker-Ready** | One-command deployment with Docker Compose |
-| 💾 **Persistent Storage** | JSON-based data persistence with volume mounting |
-| 📝 **Admin Logging** | Real-time error notifications sent to Telegram |
+## Integration & Architecture
+This application relies on a modular architecture combining a Python Telegram bot framework with web scraping and AI capabilities:
+- **Core Bot**: Built using python-telegram-bot for handling conversations, callbacks, and scheduled jobs.
+- **Scraping Engine**: Utilizes BeautifulSoup4 and Requests for a dual-strategy scraping approach (JSON-LD and HTML).
+- **Gemini Proxy**: Includes a Node.js proxy server alongside a Python MCP extension for seamless Gemini AI integration.
+- **Storage**: Uses SQLite with a robust `db.py` module to persist users, searches, and listing data.
 
----
-
-## 🏗️ Architecture & Technologies
-
-### Core Stack
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    OLX Listing Scraper                      │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │  Telegram   │  │   Web       │  │   Google Gemini     │  │
-│  │  Bot API    │◄─┤  Scraping   │──►  AI Analysis        │  │
-│  │  (v13.15)   │  │  Engine     │  │   (2.5 Flash Lite)  │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│         │               │                    │              │
-│         ▼               ▼                    ▼              │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │                     SQLite Database                     ││
-│  │  • user_prefs         • searches         • listings     ││
-│  │  • search_urls        • feedback                        ││
-│  └─────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Technology Breakdown
-
-| Technology | Purpose | Implementation Details |
-|------------|---------|------------------------|
-| **Python 3.9+** | Core runtime | Async-compatible, type-hinted codebase |
-| **python-telegram-bot** | Bot framework | Conversation handlers, callbacks, job queues |
-| **BeautifulSoup4 + lxml** | HTML parsing | High-performance DOM traversal |
-| **Requests** | HTTP client | Session handling with custom headers |
-| **Google Generative AI** | Price intelligence | Gemini 2.5 Flash Lite model integration |
-| **Docker** | Containerization | Slim Python image, multi-stage ready |
-| **Docker Compose** | Orchestration | Environment management, volume persistence |
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
+## Prerequisites
 - Docker & Docker Compose (recommended)
 - Python 3.9+ (for local development)
-- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- Google Gemini API Key (from [Google AI Studio](https://aistudio.google.com/app/apikey))
+- Telegram Bot Token (from @BotFather)
+- Google Gemini API Key (from Google AI Studio)
 
-### 🐳 Docker Deployment (Recommended)
+## Installation & Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/anotherk1t/olxpl_listingscraper.git
-   cd olxpl_listingscraper
-   ```
-
-2. **Create environment file**
+### 1. Running with Docker (Recommended)
+1. Clone the repository and create an environment file:
    ```bash
    cat > .env << EOF
    TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-   GEMINI_API_KEY=your_gemini_api_key
+   LLM_PROXY_URL=http://host.docker.internal:3000/ask
    ADMIN_CHAT_ID=your_telegram_chat_id
    EOF
    ```
-
-3. **Launch with Docker Compose**
+2. Launch using Docker Compose:
    ```bash
    docker-compose up -d --build
    ```
-
-4. **Verify deployment**
+3. To monitor the deployment, you can check the logs:
    ```bash
    docker logs -f olx-notifier
    ```
 
-### 🐍 Local Development
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# venv\Scripts\activate   # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables
-export TELEGRAM_BOT_TOKEN="your_token"
-export GEMINI_API_KEY="your_key"
-export ADMIN_CHAT_ID="your_chat_id"
-
-# Run the bot
-python main.py
-```
-
----
-
-## 📖 Usage Guide
-
-### Bot Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Initialize the bot and see welcome message |
-| `/add` | Interactive flow to add a Link Monitor, Precision Search, or Broad Deal Finder |
-| `/edit` | Modify parameters of an existing search |
-| `/list` | View all your active search queries |
-| `/delete` | Remove a search from monitoring |
-| `/language` | Change the bot language (EN, PL, RU, UK) |
-| `/slopgest` | Generate an AI summary and analysis of your listings |
-| `/resume` | Review pending listings from Precision Searches |
-| `/help` | Display available commands |
-
-### Workflow
-
-```
-1. Send /add to the bot
-2. Choose your monitoring mode via inline buttons (Link Monitor, Precision Search, Broad Deal Finder)
-3. Describe what you're looking for or simply paste an OLX.pl URL
-4. Approve the AI-generated search parameters
-5. Receive notifications for new listings! 🎉
-```
-
-### Sample Notification
-
-```
-✨ New Listing Found for 'vintage camera' ✨
-
-Olympus OM-1 with 50mm f/1.8 lens
-
-💰 Price: 850 zł
-🔗 View Listing
-
-🟢 AI Price Analysis (high confidence):
-This is a great deal! Similar Olympus OM-1 cameras with kit 
-lenses typically sell for 1000-1200 PLN. The included 
-50mm f/1.8 adds significant value.
-```
-
----
-
-## 🔧 Configuration
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Bot token from BotFather |
-| `GEMINI_API_KEY` | ❌ | Gemini API key (enables AI analysis) |
-| `ADMIN_CHAT_ID` | ❌ | Chat ID for admin log notifications |
-
-### Timing Configuration
-
-Adjust intervals in `main.py`:
-
-```python
-CHECK_INTERVAL = 300    # Check for new listings (5 min)
-MONITOR_INTERVAL = 1200 # Monitor existing listings (20 min)
-```
-
----
-
-## 🔬 Technical Deep Dive
-
-### Scraping Strategy
-
-The scraper employs a **dual-method approach** for maximum reliability:
-
-1. **Primary: JSON-LD Extraction**
-   - Parses structured data from `<script type="application/ld+json">`
-   - Most reliable when available, provides clean structured data
-
-2. **Fallback: HTML DOM Parsing**
-   - Traverses `data-cy="l-card"` elements
-   - Extracts title, price, and URL from HTML structure
-   - Ensures functionality even when JSON-LD is unavailable
-
-### AI Price Analysis
-
-The Gemini integration provides:
-
-- **Market Comparison** — Compares against historical data
-- **Price Assessment** — HIGH / FAIR / LOW classification
-- **Confidence Scoring** — Indicates analysis reliability
-- **Contextual Insights** — Brand, condition, and anomaly detection
-
-### Data Persistence
-
-```
-data/
-└── olx_scraper.db    # SQLite database holding user prefs, searches, and listings
-```
-
----
-
-## 📂 Project Structure
-
-```
-olxpl_listingscraper/
-├── main.py              # Application entry point and orchestrator
-├── config.py            # Global constants and state definitions
-├── db.py                # SQLite wrapper and models
-├── handlers.py          # Telegram command and callback handlers
-├── jobs.py              # Background scraping and monitoring tasks
-├── i18n.py              # Localization helper
-├── llm.py               # Google Gemini integration functions
-├── locales/             # JSON translation files (EN, PL, RU, UK)
-├── formatters.py        # Message formatting functions
-├── url_builder.py       # OLX URL construction logic
-├── Dockerfile           # Container definition
-├── docker-compose.yml   # Orchestration config
-├── requirements.txt     # Python dependencies
-├── LICENSE              # GPL-3.0 license
-└── README.md            # Documentation
-```
-
----
-
-## 🛡️ Security Considerations
-
-- ✅ Token-based authentication via environment variables
-- ✅ No hardcoded credentials
-- ✅ User-scoped data isolation
-- ✅ Rate limiting compliance (5-second delays)
-- ✅ Respectful scraping with proper User-Agent headers
-
----
-
-## 🗺️ Roadmap
-
-- [x] Multi-language support
-- [ ] Price drop notifications
-- [ ] Export to CSV/JSON
-- [ ] Web dashboard interface
-- [ ] Redis-based caching
-- [ ] Prometheus metrics endpoint
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👨‍💻 Author
-
-**anotherk1t**
-
-<p>
-  <a href="https://github.com/anotherk1t">
-    <img src="https://img.shields.io/badge/GitHub-anotherk1t-181717?style=flat-square&logo=github" alt="GitHub">
-  </a>
-</p>
-
----
-
-<p align="center">
-  <b>⭐ If this project helped you, consider giving it a star! ⭐</b>
-</p>
+### 2. Running locally (without Docker)
+1. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Set environment variables and run the bot:
+   ```bash
+   export TELEGRAM_BOT_TOKEN="your_token"
+   export LLM_PROXY_URL="http://localhost:3000/ask"
+   export ADMIN_CHAT_ID="your_chat_id"
+   python main.py
+   ```

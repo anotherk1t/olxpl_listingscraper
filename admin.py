@@ -13,7 +13,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import ADMIN_CHAT_ID, CONFIG
+from config import ADMIN_CHAT_ID, CONFIG, LLM_PROXY_URL
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     # Proxy status
     import requests
     try:
-        resp = requests.get(CONFIG.GEMINI_PROXY_URL.replace("/ask", "/health"), timeout=3)
+        resp = requests.get(LLM_PROXY_URL.replace("/ask", "/health"), timeout=3)
         proxy_status = "✅ Reachable" if resp.status_code == 200 else f"⚠️ HTTP {resp.status_code}"
     except Exception:
         proxy_status = "❌ Unreachable"

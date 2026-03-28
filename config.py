@@ -60,7 +60,7 @@ HTTP_HEADERS = {
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-GEMINI_PROXY_URL = os.getenv("GEMINI_PROXY_URL", "http://host.docker.internal:3000/ask")
+LLM_PROXY_URL = os.getenv("LLM_PROXY_URL", "http://host.docker.internal:3000/ask")
 
 if not TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")

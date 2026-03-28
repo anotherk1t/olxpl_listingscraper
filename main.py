@@ -28,7 +28,7 @@ from config import (
     CONFIRM_SLOPSEARCH_QUERY,
     CONFIG,
     EDIT_AWAIT_CHANGES,
-    GEMINI_PROXY_URL,
+    LLM_PROXY_URL,
     MODIFY_CHEAP_QUERY,
     MODIFY_SLOPSEARCH_QUERY,
     TOKEN,
@@ -84,19 +84,19 @@ logger = logging.getLogger(__name__)
 
 
 def _wait_for_proxy(url: str, retries: int = 6, delay: float = 5) -> None:
-    """Wait for the Gemini CLI proxy to become reachable."""
+    """Wait for the Copilot CLI proxy to become reachable."""
     health_url = url.rsplit("/", 1)[0] + "/health"
     for attempt in range(1, retries + 1):
         try:
             resp = requests.get(health_url, timeout=3)
             if resp.status_code == 200:
-                logger.info(f"Gemini proxy is reachable ({health_url})")
+                logger.info(f"LLM proxy is reachable ({health_url})")
                 return
         except requests.RequestException:
             pass
-        logger.warning(f"Gemini proxy not ready (attempt {attempt}/{retries}), retrying in {delay}s...")
+        logger.warning(f"LLM proxy not ready (attempt {attempt}/{retries}), retrying in {delay}s...")
         time.sleep(delay)
-    logger.warning("Gemini proxy not reachable after retries — LLM features may fail on first cycle")
+    logger.warning("LLM proxy not reachable after retries — LLM features may fail on first cycle")
 
 
 def main() -> None:
@@ -104,7 +104,7 @@ def main() -> None:
     db.init_db()
     logger.info("Database initialized")
 
-    _wait_for_proxy(GEMINI_PROXY_URL)
+    _wait_for_proxy(LLM_PROXY_URL)
 
     app = Application.builder().token(TOKEN).build()
 

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Starts the Gemini CLI HTTP proxy on port 3000.
+# Starts the Copilot CLI HTTP proxy on port 3000.
 # Run this on the host before starting the Docker bot.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROXY_JS="$SCRIPT_DIR/gemini_proxy_server.js"
+PROXY_JS="$SCRIPT_DIR/copilot_proxy_server.js"
 PORT=3000
 
 if lsof -ti tcp:$PORT > /dev/null 2>&1; then
@@ -11,5 +11,5 @@ if lsof -ti tcp:$PORT > /dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting Gemini CLI proxy on port $PORT..."
+echo "Starting Copilot CLI proxy on port $PORT..."
 exec node "$PROXY_JS"
