@@ -9,8 +9,7 @@ import json
 import os
 import sqlite3
 import time
-from contextlib import contextmanager
-from typing import Optional
+from contextlib import contextmanager, suppress
 
 from config import CONFIG
 
@@ -154,7 +153,7 @@ def init_db() -> None:
             conn.execute("ALTER TABLE searches ADD COLUMN browse_category TEXT")
         if "custom_filters" not in cols:
             conn.execute("ALTER TABLE searches ADD COLUMN custom_filters TEXT")
-            
+
         cols_prefs = {r[1] for r in conn.execute("PRAGMA table_info(user_prefs)").fetchall()}
         if "override_language" not in cols_prefs:
             conn.execute("ALTER TABLE user_prefs ADD COLUMN override_language TEXT")
@@ -163,6 +162,7 @@ def init_db() -> None:
 # ============================================================================
 # SEARCHES
 # ============================================================================
+
 
 def create_search(
     chat_id: str,
@@ -192,7 +192,13 @@ def create_search(
                 base_path, condition, browse_category, custom_filters, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                chat_id, name, mode, status, url, max_price, min_price,
+                chat_id,
+                name,
+                mode,
+                status,
+                url,
+                max_price,
+                min_price,
                 json.dumps(keywords) if keywords else None,
                 original_query,
                 json.dumps(products) if products else None,
@@ -208,14 +214,14 @@ def create_search(
         return cur.lastrowid
 
 
-def get_search(search_id: int) -> Optional[dict]:
+def get_search(search_id: int) -> dict | None:
     """Get a single search by id."""
     with get_db() as conn:
         row = conn.execute("SELECT * FROM searches WHERE id = ?", (search_id,)).fetchone()
         return _row_to_dict(row) if row else None
 
 
-def get_search_by_name(chat_id: str, name: str) -> Optional[dict]:
+def get_search_by_name(chat_id: str, name: str) -> dict | None:
     """Get a search by chat_id and name."""
     with get_db() as conn:
         row = conn.execute(
@@ -234,9 +240,7 @@ def get_searches_by_chat(chat_id: str, mode: str = None) -> list[dict]:
                 (chat_id, mode),
             ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM searches WHERE chat_id = ?", (chat_id,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM searches WHERE chat_id = ?", (chat_id,)).fetchall()
         return [_row_to_dict(r) for r in rows]
 
 
@@ -280,6 +284,7 @@ def delete_search(search_id: int) -> None:
 # SEARCH URLS (cheap mode product URLs)
 # ============================================================================
 
+
 def add_search_urls(search_id: int, url_entries: list[dict]) -> None:
     """Add product URLs for a cheap mode search. Each entry: {url, product_name}."""
     with get_db() as conn:
@@ -291,9 +296,7 @@ def add_search_urls(search_id: int, url_entries: list[dict]) -> None:
 
 def get_search_urls(search_id: int) -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM search_urls WHERE search_id = ?", (search_id,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM search_urls WHERE search_id = ?", (search_id,)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -332,6 +335,7 @@ def update_search_url(url_id: int, url: str) -> None:
 # SEEN LISTINGS
 # ============================================================================
 
+
 def is_seen(search_id: int, listing_id: str) -> bool:
     with get_db() as conn:
         row = conn.execute(
@@ -352,9 +356,7 @@ def mark_seen(search_id: int, listing_ids: list[str]) -> None:
 
 def get_seen_ids(search_id: int) -> set[str]:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT listing_id FROM seen_listings WHERE search_id = ?", (search_id,)
-        ).fetchall()
+        rows = conn.execute("SELECT listing_id FROM seen_listings WHERE search_id = ?", (search_id,)).fetchall()
         return {r["listing_id"] for r in rows}
 
 
@@ -367,6 +369,7 @@ def clear_seen(search_id: int) -> None:
 # ============================================================================
 # LISTINGS (shared cache)
 # ============================================================================
+
 
 def save_listing(listing: dict) -> None:
     """Upsert a listing into the shared cache."""
@@ -388,17 +391,16 @@ def save_listing(listing: dict) -> None:
         )
 
 
-def get_listing(listing_id: str) -> Optional[dict]:
+def get_listing(listing_id: str) -> dict | None:
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM listings WHERE listing_id = ?", (listing_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM listings WHERE listing_id = ?", (listing_id,)).fetchone()
         return dict(row) if row else None
 
 
 # ============================================================================
 # SEARCH LISTINGS (per-search status: pending/accepted/declined/sent)
 # ============================================================================
+
 
 def add_search_listing(search_id: int, listing_id: str, status: str = "pending", **kwargs) -> None:
     now = int(time.time())
@@ -408,10 +410,13 @@ def add_search_listing(search_id: int, listing_id: str, status: str = "pending",
                (search_id, listing_id, status, ai_summary, decline_feedback, first_seen, last_seen)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
-                search_id, listing_id, status,
+                search_id,
+                listing_id,
+                status,
                 kwargs.get("ai_summary"),
                 kwargs.get("decline_feedback"),
-                now, now,
+                now,
+                now,
             ),
         )
 
@@ -456,7 +461,7 @@ def count_search_listings(search_id: int, status: str) -> int:
         return row["cnt"]
 
 
-def get_next_pending_listing(search_id: int) -> Optional[dict]:
+def get_next_pending_listing(search_id: int) -> dict | None:
     """Get the next pending listing for review (FIFO)."""
     with get_db() as conn:
         row = conn.execute(
@@ -484,8 +489,7 @@ def mark_active_listings_sold(search_id: int, live_ids: set[str]) -> list[dict]:
         for row in active:
             if row["listing_id"] not in live_ids:
                 conn.execute(
-                    "UPDATE search_listings SET status = 'sold', removed_at = ? "
-                    "WHERE search_id = ? AND listing_id = ?",
+                    "UPDATE search_listings SET status = 'sold', removed_at = ? WHERE search_id = ? AND listing_id = ?",
                     (now, search_id, row["listing_id"]),
                 )
                 sold.append(dict(row))
@@ -494,8 +498,7 @@ def mark_active_listings_sold(search_id: int, live_ids: set[str]) -> list[dict]:
         for row in active:
             if row["listing_id"] in live_ids:
                 conn.execute(
-                    "UPDATE search_listings SET last_seen = ? "
-                    "WHERE search_id = ? AND listing_id = ?",
+                    "UPDATE search_listings SET last_seen = ? WHERE search_id = ? AND listing_id = ?",
                     (now, search_id, row["listing_id"]),
                 )
 
@@ -506,9 +509,13 @@ def mark_active_listings_sold(search_id: int, live_ids: set[str]) -> list[dict]:
 # SENT MESSAGES (Telegram message_id → listing mapping)
 # ============================================================================
 
+
 def record_sent_message(
-    message_id: str, chat_id: str, search_id: int,
-    listing_id: str, product_name: str = None,
+    message_id: str,
+    chat_id: str,
+    search_id: int,
+    listing_id: str,
+    product_name: str = None,
 ) -> None:
     with get_db() as conn:
         conn.execute(
@@ -518,7 +525,7 @@ def record_sent_message(
         )
 
 
-def lookup_sent_message(message_id: str, chat_id: str) -> Optional[dict]:
+def lookup_sent_message(message_id: str, chat_id: str) -> dict | None:
     """Look up the first sent message entry for a given message_id."""
     with get_db() as conn:
         row = conn.execute(
@@ -544,20 +551,18 @@ def get_sent_messages_by_msg_id(message_id: str, chat_id: str) -> list[dict]:
 # FEEDBACK
 # ============================================================================
 
+
 def add_feedback(search_id: int, listing_title: str, product: str, feedback_text: str) -> None:
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO feedback (search_id, listing_title, product, feedback, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO feedback (search_id, listing_title, product, feedback, created_at) VALUES (?, ?, ?, ?, ?)",
             (search_id, listing_title, product, feedback_text, int(time.time())),
         )
 
 
 def get_feedback(search_id: int) -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM feedback WHERE search_id = ? ORDER BY created_at", (search_id,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM feedback WHERE search_id = ? ORDER BY created_at", (search_id,)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -565,11 +570,10 @@ def get_feedback(search_id: int) -> list[dict]:
 # USER PREFERENCES
 # ============================================================================
 
+
 def get_user_mode(chat_id: str) -> str:
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT mode FROM user_prefs WHERE chat_id = ?", (chat_id,)
-        ).fetchone()
+        row = conn.execute("SELECT mode FROM user_prefs WHERE chat_id = ?", (chat_id,)).fetchone()
         return row["mode"] if row else "monitor"
 
 
@@ -582,11 +586,9 @@ def set_user_mode(chat_id: str, mode: str) -> None:
         )
 
 
-def get_user_language(chat_id: str) -> Optional[str]:
+def get_user_language(chat_id: str) -> str | None:
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT override_language FROM user_prefs WHERE chat_id = ?", (chat_id,)
-        ).fetchone()
+        row = conn.execute("SELECT override_language FROM user_prefs WHERE chat_id = ?", (chat_id,)).fetchone()
         return row["override_language"] if row else None
 
 
@@ -603,13 +605,12 @@ def set_user_language(chat_id: str, lang: str) -> None:
 # HELPERS
 # ============================================================================
 
+
 def _row_to_dict(row: sqlite3.Row) -> dict:
     """Convert a Row to dict, deserializing JSON fields."""
     d = dict(row)
     for key in ("keywords", "products"):
         if d.get(key):
-            try:
+            with suppress(json.JSONDecodeError, TypeError):
                 d[key] = json.loads(d[key])
-            except (json.JSONDecodeError, TypeError):
-                pass
     return d

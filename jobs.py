@@ -15,7 +15,6 @@ from admin import notify_admin, record_scrape
 from config import CONFIG
 from formatters import (
     cheap_price_stats,
-    format_cheap_listing,
     format_cheap_product_group,
     format_monitor_listing,
     parse_price,
@@ -30,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # UNIFIED SCRAPE JOB
 # ============================================================================
+
 
 async def scrape_all(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -48,8 +48,8 @@ async def scrape_all(context: ContextTypes.DEFAULT_TYPE) -> None:
     for search in searches:
         try:
             mode = search["mode"]
-            search_id = search["id"]
-            chat_id = search["chat_id"]
+            search["id"]
+            search["chat_id"]
 
             if mode == "monitor":
                 await _process_monitor(context, search)
@@ -73,6 +73,7 @@ async def scrape_all(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ============================================================================
 # MONITOR MODE
 # ============================================================================
+
 
 async def _process_monitor(context: ContextTypes.DEFAULT_TYPE, search: dict) -> None:
     """Scrape page 1, send all new listings directly. Zero AI."""
@@ -113,12 +114,13 @@ async def _process_monitor(context: ContextTypes.DEFAULT_TYPE, search: dict) -> 
 # SLOPSEARCH MODE
 # ============================================================================
 
+
 async def _process_slopsearch(context: ContextTypes.DEFAULT_TYPE, search: dict) -> None:
     """Handle slopsearch: initial scrape or continuous monitoring."""
     status = search["status"]
-    search_id = search["id"]
-    chat_id = search["chat_id"]
-    name = search["name"]
+    search["id"]
+    search["chat_id"]
+    search["name"]
     url = search.get("url")
 
     if not url:
@@ -163,7 +165,9 @@ async def _slopsearch_initial_scrape(context: ContextTypes.DEFAULT_TYPE, search:
 
     # Location filter (OLX URL path doesn't actually filter by city)
     all_listings = filter_by_location(
-        all_listings, search.get("location"), search.get("location_radius"),
+        all_listings,
+        search.get("location"),
+        search.get("location_radius"),
     )
 
     # Cap LLM input
@@ -222,7 +226,9 @@ async def _slopsearch_monitor(context: ContextTypes.DEFAULT_TYPE, search: dict) 
 
     # Location filter
     new_listings = filter_by_location(
-        new_listings, search.get("location"), search.get("location_radius"),
+        new_listings,
+        search.get("location"),
+        search.get("location_radius"),
     )
     if not new_listings:
         return
@@ -238,9 +244,7 @@ async def _slopsearch_monitor(context: ContextTypes.DEFAULT_TYPE, search: dict) 
         db.save_listing(listing)
         db.add_search_listing(search_id, listing["id"], status="pending")
 
-    listing_links = "\n".join(
-        f"• [{l['title']}]({l['url']}) — {l['price']}" for l in matched
-    )
+    listing_links = "\n".join(f"• [{l['title']}]({l['url']}) — {l['price']}" for l in matched)
     message = (
         f"🚨 *{len(matched)} new match{'es' if len(matched) > 1 else ''}: {name}*\n\n"
         f"{listing_links}\n\n"
@@ -259,13 +263,15 @@ async def _slopsearch_monitor(context: ContextTypes.DEFAULT_TYPE, search: dict) 
 # CHEAP MODE
 # ============================================================================
 
+
 async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> None:
     """Scrape per-product URLs for cheap mode, send grouped messages per product."""
     if search["status"] != "monitoring":
         return
 
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     import hashlib
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     search_id = search["id"]
     chat_id = search["chat_id"]
@@ -287,10 +293,7 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
             # Discard OLX extended search results (wrong products mixed in)
             # OLX adds reason=extended_search_* when broadening results beyond the query
             real_count = len(listings)
-            listings = [
-                l for l in listings
-                if "extended_search" not in l.get("url", "")
-            ]
+            listings = [l for l in listings if "extended_search" not in l.get("url", "")]
             if real_count > 0 and not listings:
                 logger.info(f"Cheap: all {real_count} listings for '{product}' are fallback (no local results)")
                 continue
@@ -310,19 +313,17 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
 
             # Price filter
             if max_price is not None:
-                new_listings = [
-                    l for l in new_listings if parse_price(l["price"]) <= max_price
-                ]
+                new_listings = [l for l in new_listings if parse_price(l["price"]) <= max_price]
             if min_price is not None:
-                new_listings = [
-                    l for l in new_listings if parse_price(l["price"]) >= min_price
-                ]
+                new_listings = [l for l in new_listings if parse_price(l["price"]) >= min_price]
             if not new_listings:
                 continue
 
             # Location filter
             new_listings = filter_by_location(
-                new_listings, search.get("location"), search.get("location_radius"),
+                new_listings,
+                search.get("location"),
+                search.get("location_radius"),
             )
             if not new_listings:
                 continue
@@ -337,8 +338,7 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
 
             # Filter: keep only passed listings
             passed = [
-                (l, d, v) for l, d, v in zip(new_listings, details_list, verdicts)
-                if v.get("pass", True)
+                (l, d, v) for l, d, v in zip(new_listings, details_list, verdicts, strict=False) if v.get("pass", True)
             ]
             if not passed:
                 logger.info(f"Cheap: all {len(new_listings)} listings for '{product}' rejected by LLM")
@@ -349,7 +349,7 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
             passed_verdicts = [t[2] for t in passed]
 
             # Save listings to DB
-            for listing, details in zip(passed_listings, passed_details):
+            for listing, details in zip(passed_listings, passed_details, strict=False):
                 db.save_listing({**listing, **details})
 
             # Get accepted listings for global stats
@@ -358,23 +358,30 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
 
             # Build grouped message
             msg_text = format_cheap_product_group(
-                name, product, passed_listings, passed_details, passed_verdicts, stats_line,
+                name,
+                product,
+                passed_listings,
+                passed_details,
+                passed_verdicts,
+                stats_line,
             )
 
             # Product hash for callback data (keep it short)
             product_hash = hashlib.md5(product.encode()).hexdigest()[:8]
-            listing_ids = ",".join(l["id"] for l in passed_listings)
+            ",".join(l["id"] for l in passed_listings)
 
-            keyboard = [[
-                InlineKeyboardButton(
-                    f"✅ Approve All ({len(passed_listings)})",
-                    callback_data=f"ca_{search_id}_{product_hash}",
-                ),
-                InlineKeyboardButton(
-                    "❌ Skip All",
-                    callback_data=f"cs_{search_id}_{product_hash}",
-                ),
-            ]]
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"✅ Approve All ({len(passed_listings)})",
+                        callback_data=f"ca_{search_id}_{product_hash}",
+                    ),
+                    InlineKeyboardButton(
+                        "❌ Skip All",
+                        callback_data=f"cs_{search_id}_{product_hash}",
+                    ),
+                ]
+            ]
 
             try:
                 sent = await context.bot.send_message(
@@ -387,7 +394,11 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
                 # Record sent message with all listing IDs for this group
                 for listing in passed_listings:
                     db.record_sent_message(
-                        str(sent.message_id), chat_id, search_id, listing["id"], product,
+                        str(sent.message_id),
+                        chat_id,
+                        search_id,
+                        listing["id"],
+                        product,
                     )
                     db.add_search_listing(search_id, listing["id"], status="sent")
                 await asyncio.sleep(CONFIG.RATE_LIMIT_DELAY)
@@ -401,6 +412,7 @@ async def _process_cheap(context: ContextTypes.DEFAULT_TYPE, search: dict) -> No
 # ============================================================================
 # SOLD DETECTION
 # ============================================================================
+
 
 async def detect_sold(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Periodic job: detect removed/sold listings across all searches."""

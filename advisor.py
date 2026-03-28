@@ -9,13 +9,11 @@ import asyncio
 import json
 import logging
 import re
-from typing import Optional
 
-from scraper import scrape_olx_page
-from url_builder import product_to_url, category_browse_url
-from llm import ask_llm
-from config import CONFIG
 import db
+from llm import ask_llm
+from scraper import scrape_olx_page
+from url_builder import product_to_url
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +39,22 @@ _NEIGHBORS: dict[str, list[str]] = {
 
 # City agglomeration → voivodeship for expansion
 _CITY_TO_VOIVODESHIP: dict[str, str] = {
-    "gdansk": "pomorskie", "katowice": "slaskie", "warszawa": "mazowieckie",
-    "krakow": "malopolskie", "wroclaw": "dolnoslaskie", "poznan": "wielkopolskie",
-    "lodz": "lodzkie", "szczecin": "zachodniopomorskie", "lublin": "lubelskie",
-    "bydgoszcz": "kujawsko-pomorskie", "torun": "kujawsko-pomorskie",
-    "rzeszow": "podkarpackie", "bialystok": "podlaskie", "olsztyn": "warminsko-mazurskie",
-    "opole": "opolskie", "kielce": "swietokrzyskie",
+    "gdansk": "pomorskie",
+    "katowice": "slaskie",
+    "warszawa": "mazowieckie",
+    "krakow": "malopolskie",
+    "wroclaw": "dolnoslaskie",
+    "poznan": "wielkopolskie",
+    "lodz": "lodzkie",
+    "szczecin": "zachodniopomorskie",
+    "lublin": "lubelskie",
+    "bydgoszcz": "kujawsko-pomorskie",
+    "torun": "kujawsko-pomorskie",
+    "rzeszow": "podkarpackie",
+    "bialystok": "podlaskie",
+    "olsztyn": "warminsko-mazurskie",
+    "opole": "opolskie",
+    "kielce": "swietokrzyskie",
 }
 
 
@@ -86,16 +94,14 @@ async def probe_search(search_id: int) -> dict:
         return {"error": "No URLs configured"}
 
     # Probe all URLs in parallel
-    results = await asyncio.gather(
-        *(asyncio.to_thread(_count_results, u["url"]) for u in urls)
-    )
+    results = await asyncio.gather(*(asyncio.to_thread(_count_results, u["url"]) for u in urls))
 
     products = []
     broad = None
     browse = None
     total_local = 0
 
-    for url_entry, counts in zip(urls, results):
+    for url_entry, counts in zip(urls, results, strict=False):
         name = url_entry.get("product_name", "")
         entry = {"name": name, "url": url_entry["url"], **counts}
 
@@ -126,24 +132,21 @@ async def probe_alternatives(search: dict) -> dict:
     max_price = search.get("max_price")
     base_path = search.get("base_path") or "oferty"
     products_json = search.get("products")
-    products = json.loads(products_json) if products_json else []
+    json.loads(products_json) if products_json else []
     broad_keyword = search.get("name", "")
 
     alternatives = {"relaxed_price": None, "neighbors": [], "nationwide": None}
 
     # Pick the broad keyword for testing
-    broad_url_params = {
-        "product_name": broad_keyword,
-        "base_path": base_path,
-        "location": location,
-    }
 
     # 1. Relaxed price (+30%)
     if max_price:
         relaxed = int(max_price * 1.3)
         url = product_to_url(
-            broad_keyword, max_price=relaxed,
-            location=location, base_path=base_path,
+            broad_keyword,
+            max_price=relaxed,
+            location=location,
+            base_path=base_path,
         )
         counts = await asyncio.to_thread(_count_results, url)
         alternatives["relaxed_price"] = {
@@ -161,20 +164,22 @@ async def probe_alternatives(search: dict) -> dict:
         neighbor_probes = []
         for neighbor in _NEIGHBORS[voivodeship][:3]:  # Top 3 neighbors
             url = product_to_url(
-                broad_keyword, max_price=max_price,
-                location=neighbor, base_path=base_path,
+                broad_keyword,
+                max_price=max_price,
+                location=neighbor,
+                base_path=base_path,
             )
             neighbor_probes.append((neighbor, url))
 
-        results = await asyncio.gather(
-            *(asyncio.to_thread(_count_results, url) for _, url in neighbor_probes)
-        )
-        for (neighbor, url), counts in zip(neighbor_probes, results):
-            alternatives["neighbors"].append({
-                "region": neighbor,
-                "url": url,
-                **counts,
-            })
+        results = await asyncio.gather(*(asyncio.to_thread(_count_results, url) for _, url in neighbor_probes))
+        for (neighbor, url), counts in zip(neighbor_probes, results, strict=False):
+            alternatives["neighbors"].append(
+                {
+                    "region": neighbor,
+                    "url": url,
+                    **counts,
+                }
+            )
 
     # 3. Nationwide (no location)
     url = product_to_url(broad_keyword, max_price=max_price, base_path=base_path)
@@ -184,7 +189,7 @@ async def probe_alternatives(search: dict) -> dict:
     return alternatives
 
 
-async def run_advisor_llm(search: dict, probe_data: dict, alt_data: dict) -> Optional[list]:
+async def run_advisor_llm(search: dict, probe_data: dict, alt_data: dict) -> list | None:
     """
     Feed probe results to LLM and get structured suggestions.
     Returns list of suggestions:
@@ -222,25 +227,27 @@ async def run_advisor_llm(search: dict, probe_data: dict, alt_data: dict) -> Opt
         f"Max price: {max_price} PLN\n"
         f"Location: {location or 'nationwide'}\n\n"
         f"**Current product coverage:**\n"
-        + "\n".join(products_summary) + "\n"
+        + "\n".join(products_summary)
+        + "\n"
         + (broad_line + "\n" if broad_line else "")
         + (browse_line + "\n" if browse_line else "")
-        + f"\n**Alternatives tested:**\n"
-        + "\n".join(alt_lines) + "\n\n"
-        f"Based on this data, suggest improvements. For each suggestion, provide:\n"
-        f'- "type": one of "add_product", "remove_product", "raise_price", "expand_location"\n'
-        f'- "label": short human-readable description\n'
-        f'- "reason": why this helps\n'
-        f'- "value": the new product name / price / region slug\n\n'
-        f"Rules:\n"
-        f"- Remove products with 0 results\n"
-        f"- Only suggest adding products that are likely to exist on OLX in that category\n"
-        f"- Only suggest price/location changes if it meaningfully increases results\n"
-        f"- Keep suggestions actionable and concrete (max 6)\n\n"
-        f"Return ONLY valid JSON array:\n"
-        f'[{{"type": "remove_product", "label": "Remove Kymco Agility", '
-        f'"reason": "0 results in pomorskie", "value": "Kymco Agility"}}]\n'
-        f"No markdown, no explanation."
+        + "\n**Alternatives tested:**\n"
+        + "\n".join(alt_lines)
+        + "\n\n"
+        "Based on this data, suggest improvements. For each suggestion, provide:\n"
+        '- "type": one of "add_product", "remove_product", "raise_price", "expand_location"\n'
+        '- "label": short human-readable description\n'
+        '- "reason": why this helps\n'
+        '- "value": the new product name / price / region slug\n\n'
+        "Rules:\n"
+        "- Remove products with 0 results\n"
+        "- Only suggest adding products that are likely to exist on OLX in that category\n"
+        "- Only suggest price/location changes if it meaningfully increases results\n"
+        "- Keep suggestions actionable and concrete (max 6)\n\n"
+        "Return ONLY valid JSON array:\n"
+        '[{"type": "remove_product", "label": "Remove Kymco Agility", '
+        '"reason": "0 results in pomorskie", "value": "Kymco Agility"}]\n'
+        "No markdown, no explanation."
     )
 
     response_text = await ask_llm(prompt)
@@ -256,7 +263,7 @@ async def run_advisor_llm(search: dict, probe_data: dict, alt_data: dict) -> Opt
         return None
 
 
-async def generate_advice(search_id: int) -> Optional[dict]:
+async def generate_advice(search_id: int) -> dict | None:
     """
     Full advisor pipeline: probe → alternatives → LLM → suggestions.
     Returns {"search": {...}, "probe": {...}, "alternatives": {...},

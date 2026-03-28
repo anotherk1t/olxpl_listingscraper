@@ -4,20 +4,31 @@ OLX Scraper — Telegram Bot Handlers (python-telegram-bot v21)
 All command and callback handlers, fully async.
 """
 
+import contextlib
 import json
 import logging
-import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 import db
 import i18n
-from config import ASK_MODE, ASK_CHEAP_QUERY, ASK_NAME, ASK_SLOPSEARCH_QUERY, ASK_URL
-from config import CONFIRM_CHEAP_QUERY, CONFIRM_SLOPSEARCH_QUERY
-from config import EDIT_AWAIT_CHANGES
-from config import MODIFY_CHEAP_QUERY, MODIFY_SLOPSEARCH_QUERY
-from config import OLX_CATEGORIES, OLX_URL_CONTEXT, CONFIG
+from admin import notify_admin
+from config import (
+    ASK_CHEAP_QUERY,
+    ASK_MODE,
+    ASK_NAME,
+    ASK_SLOPSEARCH_QUERY,
+    ASK_URL,
+    CONFIG,
+    CONFIRM_CHEAP_QUERY,
+    CONFIRM_SLOPSEARCH_QUERY,
+    EDIT_AWAIT_CHANGES,
+    MODIFY_CHEAP_QUERY,
+    MODIFY_SLOPSEARCH_QUERY,
+    OLX_CATEGORIES,
+    OLX_URL_CONTEXT,
+)
 from formatters import (
     build_cheap_confirmation,
     build_slopsearch_confirmation,
@@ -26,9 +37,8 @@ from formatters import (
     format_review_item,
     parse_price,
 )
-from llm import run_cheap_feedback_llm, run_cheap_mode_llm, run_slopsearch_llm, run_slopgest_llm
+from llm import run_cheap_feedback_llm, run_cheap_mode_llm, run_slopgest_llm, run_slopsearch_llm
 from url_builder import assemble_url, category_browse_url, product_to_url, validate_and_correct_url
-from admin import notify_admin
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +76,11 @@ def get_lang(update: Update) -> str:
             lang = lang.split("-")[0]
     return lang or "en"
 
+
 # ============================================================================
 # BASIC COMMANDS
 # ============================================================================
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/start and /help"""
@@ -104,7 +116,7 @@ async def cmd_slopgest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     else:
         await msg.delete()
         for i in range(0, len(report), 4096):
-            chunk = report[i:i + 4096]
+            chunk = report[i : i + 4096]
             await context.bot.send_message(
                 chat_id=int(chat_id),
                 text=chunk,
@@ -116,23 +128,29 @@ async def cmd_slopgest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cmd_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/language — choose bot language."""
     lang = get_lang(update)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
-         InlineKeyboardButton("🇵🇱 Polski", callback_data="lang_pl")],
-        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-         InlineKeyboardButton("🇺🇦 Українська", callback_data="lang_uk")]
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+                InlineKeyboardButton("🇵🇱 Polski", callback_data="lang_pl"),
+            ],
+            [
+                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
+                InlineKeyboardButton("🇺🇦 Українська", callback_data="lang_uk"),
+            ],
+        ]
+    )
     await update.message.reply_text(i18n.get_text(lang, "language_prompt"), reply_markup=kb)
 
 
 async def callback_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    
+
     chat_id = str(query.message.chat_id)
     new_lang = query.data.split("_")[1]
     db.set_user_language(chat_id, new_lang)
-    
+
     await query.edit_message_text(i18n.get_text(new_lang, "lang_success"))
 
 
@@ -140,19 +158,19 @@ async def callback_language(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # ADD SEARCH — ENTRY POINT
 # ============================================================================
 
+
 async def cmd_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/add — start add search conversation, prompt for mode."""
     lang = get_lang(update)
-    
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(i18n.get_text(lang, "btn_monitor"), callback_data="addmode_monitor")],
-        [InlineKeyboardButton(i18n.get_text(lang, "btn_precision"), callback_data="addmode_slopsearch")],
-        [InlineKeyboardButton(i18n.get_text(lang, "btn_broad"), callback_data="addmode_cheap")],
-    ])
-    await update.message.reply_html(
-        i18n.get_text(lang, "add_mode_prompt"),
-        reply_markup=kb
+
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(i18n.get_text(lang, "btn_monitor"), callback_data="addmode_monitor")],
+            [InlineKeyboardButton(i18n.get_text(lang, "btn_precision"), callback_data="addmode_slopsearch")],
+            [InlineKeyboardButton(i18n.get_text(lang, "btn_broad"), callback_data="addmode_cheap")],
+        ]
     )
+    await update.message.reply_html(i18n.get_text(lang, "add_mode_prompt"), reply_markup=kb)
     return ASK_MODE
 
 
@@ -161,26 +179,23 @@ async def callback_add_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
     lang = get_lang(update)
-    
+
     mode = query.data.split("_")[1]
     context.user_data["mode"] = mode
-    
+
     if mode == "monitor":
         await query.edit_message_text(
-            f"{i18n.get_text(lang, 'add_name_prompt')}{i18n.get_text(lang, 'cancel_hint')}",
-            parse_mode="HTML"
+            f"{i18n.get_text(lang, 'add_name_prompt')}{i18n.get_text(lang, 'cancel_hint')}", parse_mode="HTML"
         )
         return ASK_NAME
     elif mode == "slopsearch":
         await query.edit_message_text(
-            f"{i18n.get_text(lang, 'precision_prompt')}{i18n.get_text(lang, 'cancel_hint')}",
-            parse_mode="HTML"
+            f"{i18n.get_text(lang, 'precision_prompt')}{i18n.get_text(lang, 'cancel_hint')}", parse_mode="HTML"
         )
         return ASK_SLOPSEARCH_QUERY
     else:  # cheap
         await query.edit_message_text(
-            f"{i18n.get_text(lang, 'broad_prompt')}{i18n.get_text(lang, 'cancel_hint')}",
-            parse_mode="HTML"
+            f"{i18n.get_text(lang, 'broad_prompt')}{i18n.get_text(lang, 'cancel_hint')}", parse_mode="HTML"
         )
         return ASK_CHEAP_QUERY
 
@@ -188,6 +203,7 @@ async def callback_add_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # ============================================================================
 # ADD — MONITOR MODE
 # ============================================================================
+
 
 async def cmd_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle search name input (monitor mode)."""
@@ -219,11 +235,10 @@ async def cmd_add_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     db.create_search(chat_id, name, "monitor", url=url)
 
-    await update.message.reply_text(
-        i18n.get_text(lang, "monitor_added", name=name, mins=CONFIG.CHECK_INTERVAL // 60)
-    )
+    await update.message.reply_text(i18n.get_text(lang, "monitor_added", name=name, mins=CONFIG.CHECK_INTERVAL // 60))
     await notify_admin(context, f"📋 Search created: *{name}* (monitor) by `{chat_id}`", level="success")
     from telegram.ext import ConversationHandler
+
     return ConversationHandler.END
 
 
@@ -231,12 +246,17 @@ async def cmd_add_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 # ADD — SLOPSEARCH MODE
 # ============================================================================
 
+
 def _slopsearch_keyboard(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(i18n.get_text(lang, "btn_approve"), callback_data="slopsearch_approve"),
-        InlineKeyboardButton(i18n.get_text(lang, "btn_modify"), callback_data="slopsearch_modify"),
-        InlineKeyboardButton(i18n.get_text(lang, "btn_reject"), callback_data="slopsearch_reject"),
-    ]])
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(i18n.get_text(lang, "btn_approve"), callback_data="slopsearch_approve"),
+                InlineKeyboardButton(i18n.get_text(lang, "btn_modify"), callback_data="slopsearch_modify"),
+                InlineKeyboardButton(i18n.get_text(lang, "btn_reject"), callback_data="slopsearch_reject"),
+            ]
+        ]
+    )
 
 
 async def cmd_add_slopsearch_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -249,6 +269,7 @@ async def cmd_add_slopsearch_query(update: Update, context: ContextTypes.DEFAULT
     if refined is None:
         await update.message.reply_text(i18n.get_text(lang, "llm_parse_err"))
         from telegram.ext import ConversationHandler
+
         return ConversationHandler.END
 
     # Assemble & validate URL
@@ -267,7 +288,9 @@ async def cmd_add_slopsearch_query(update: Update, context: ContextTypes.DEFAULT
         "condition": refined.get("condition"),
     }
     validated_url, used_fallback = await validate_and_correct_url(
-        raw_url, refined.get("keyword", ""), search_ctx,
+        raw_url,
+        refined.get("keyword", ""),
+        search_ctx,
     )
     refined["url"] = validated_url
     refined["url_fallback"] = used_fallback
@@ -310,8 +333,10 @@ async def callback_confirm_slopsearch(update: Update, context: ContextTypes.DEFA
     chat_id = str(query.message.chat_id)
     name = refined.get("name", "Unnamed Search")
 
-    search_id = db.create_search(
-        chat_id, name, "slopsearch",
+    db.create_search(
+        chat_id,
+        name,
+        "slopsearch",
         url=refined.get("url"),
         max_price=refined.get("max_price"),
         min_price=refined.get("min_price"),
@@ -363,7 +388,9 @@ async def cmd_modify_slopsearch(update: Update, context: ContextTypes.DEFAULT_TY
         "condition": refined.get("condition"),
     }
     validated_url, used_fallback = await validate_and_correct_url(
-        raw_url, refined.get("keyword", ""), search_ctx,
+        raw_url,
+        refined.get("keyword", ""),
+        search_ctx,
     )
     refined["url"] = validated_url
     refined["url_fallback"] = used_fallback
@@ -381,12 +408,17 @@ async def cmd_modify_slopsearch(update: Update, context: ContextTypes.DEFAULT_TY
 # ADD — CHEAP MODE
 # ============================================================================
 
+
 def _cheap_keyboard(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(i18n.get_text(lang, "btn_approve"), callback_data="cheap_approve"),
-        InlineKeyboardButton(i18n.get_text(lang, "btn_modify"), callback_data="cheap_modify"),
-        InlineKeyboardButton(i18n.get_text(lang, "btn_cancel"), callback_data="cheap_cancel"),
-    ]])
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(i18n.get_text(lang, "btn_approve"), callback_data="cheap_approve"),
+                InlineKeyboardButton(i18n.get_text(lang, "btn_modify"), callback_data="cheap_modify"),
+                InlineKeyboardButton(i18n.get_text(lang, "btn_cancel"), callback_data="cheap_cancel"),
+            ]
+        ]
+    )
 
 
 async def cmd_add_cheap_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -400,6 +432,7 @@ async def cmd_add_cheap_query(update: Update, context: ContextTypes.DEFAULT_TYPE
     if data is None or not data.get("products"):
         await update.message.reply_text(i18n.get_text(lang, "generate_failed"))
         from telegram.ext import ConversationHandler
+
         return ConversationHandler.END
 
     context.user_data["cheap_data"] = data
@@ -426,8 +459,7 @@ async def callback_confirm_cheap(update: Update, context: ContextTypes.DEFAULT_T
 
     if query.data == "cheap_modify":
         await query.edit_message_text(
-            "✏️ What would you like to change?\n"
-            "(e.g. 'lower the price', 'focus on wireless models', 'add Ducky brand')"
+            "✏️ What would you like to change?\n(e.g. 'lower the price', 'focus on wireless models', 'add Ducky brand')"
         )
         return MODIFY_CHEAP_QUERY
 
@@ -450,7 +482,9 @@ async def callback_confirm_cheap(update: Update, context: ContextTypes.DEFAULT_T
     custom_filters = data.get("custom_filters")
 
     search_id = db.create_search(
-        chat_id, data.get("name", "Cheap search"), "cheap",
+        chat_id,
+        data.get("name", "Cheap search"),
+        "cheap",
         max_price=max_price,
         min_price=min_price,
         original_query=original_query,
@@ -466,17 +500,26 @@ async def callback_confirm_cheap(update: Update, context: ContextTypes.DEFAULT_T
 
     # Add product URLs + a broad keyword search for the category
     url_entries = [
-        {"url": product_to_url(p, max_price, location, location_radius, base_path, condition, min_price, custom_filters), "product_name": p}
+        {
+            "url": product_to_url(
+                p, max_price, location, location_radius, base_path, condition, min_price, custom_filters
+            ),
+            "product_name": p,
+        }
         for p in products
     ]
     # Add a broad keyword URL to catch listings not matching specific models
     broad_name = data.get("name", "").strip()
     if broad_name:
-        broad_url = product_to_url(broad_name, max_price, location, location_radius, base_path, condition, min_price, custom_filters)
+        broad_url = product_to_url(
+            broad_name, max_price, location, location_radius, base_path, condition, min_price, custom_filters
+        )
         url_entries.append({"url": broad_url, "product_name": f"[broad] {broad_name}"})
     # Add a category browse URL (keyword-less, sorted by newest) to catch generic-titled listings
     if browse_cat:
-        browse_url = category_browse_url(browse_cat, max_price, min_price, condition, location, location_radius, custom_filters)
+        browse_url = category_browse_url(
+            browse_cat, max_price, min_price, condition, location, location_radius, custom_filters
+        )
         url_entries.append({"url": browse_url, "product_name": f"[browse] {browse_cat.split('/')[-1]}"})
     db.add_search_urls(search_id, url_entries)
 
@@ -484,7 +527,11 @@ async def callback_confirm_cheap(update: Update, context: ContextTypes.DEFAULT_T
         f"✅ Cheap search '{data.get('name')}' started! "
         f"Watching {len(products)} products on OLX. Listings will arrive shortly."
     )
-    await notify_admin(context, f"📋 Search created: *{data.get('name')}* (cheap, {len(products)} products) by `{chat_id}`", level="success")
+    await notify_admin(
+        context,
+        f"📋 Search created: *{data.get('name')}* (cheap, {len(products)} products) by `{chat_id}`",
+        level="success",
+    )
     return ConversationHandler.END
 
 
@@ -524,6 +571,7 @@ async def cmd_modify_cheap(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 # CANCEL
 # ============================================================================
 
+
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.pop("search_name", None)
     context.user_data.pop("slopsearch_data", None)
@@ -531,6 +579,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update)
     await update.message.reply_text(i18n.get_text(lang, "cancel_msg"))
     from telegram.ext import ConversationHandler
+
     return ConversationHandler.END
 
 
@@ -539,14 +588,13 @@ async def callback_stale_conversation(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     await query.answer()
     lang = get_lang(update)
-    await query.edit_message_text(
-        query.message.text + f"\n\n{i18n.get_text(lang, 'cancel_msg')}"
-    )
+    await query.edit_message_text(query.message.text + f"\n\n{i18n.get_text(lang, 'cancel_msg')}")
 
 
 # ============================================================================
 # LIST
 # ============================================================================
+
 
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/list — show all searches."""
@@ -572,8 +620,11 @@ async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if slops:
         emoji_map = {
-            "pending_scrape": "⏳", "scraping": "🔍",
-            "reviewing": "📬", "monitoring": "✅", "error": "❌",
+            "pending_scrape": "⏳",
+            "scraping": "🔍",
+            "reviewing": "📬",
+            "monitoring": "✅",
+            "error": "❌",
         }
         lines.append("🎯 Slopsearches:")
         for s in slops:
@@ -609,6 +660,7 @@ async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # DELETE
 # ============================================================================
 
+
 async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/delete — show delete buttons."""
     chat_id = str(update.message.chat_id)
@@ -623,12 +675,14 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     keyboard = []
     for s in searches:
         emoji = mode_emoji.get(s["mode"], "❓")
-        keyboard.append([
-            InlineKeyboardButton(
-                i18n.get_text(lang, "btn_delete_search", name=f"{emoji} {s['name']}"),
-                callback_data=f"del_{s['id']}",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    i18n.get_text(lang, "btn_delete_search", name=f"{emoji} {s['name']}"),
+                    callback_data=f"del_{s['id']}",
+                )
+            ]
+        )
 
     await update.message.reply_text(
         i18n.get_text(lang, "delete_prompt"),
@@ -656,6 +710,7 @@ async def callback_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # EDIT (modify existing search parameters)
 # ============================================================================
 
+
 async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/edit — pick a search to modify."""
     chat_id = str(update.message.chat_id)
@@ -665,18 +720,21 @@ async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not searches:
         await update.message.reply_text(i18n.get_text(lang, "list_empty"))
         from telegram.ext import ConversationHandler
+
         return ConversationHandler.END
 
     mode_emoji = {"monitor": "🔔", "slopsearch": "🎯", "cheap": "💸"}
     keyboard = []
     for s in searches:
         emoji = mode_emoji.get(s["mode"], "❓")
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{emoji} {s['name']}",
-                callback_data=f"edit_{s['id']}",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"{emoji} {s['name']}",
+                    callback_data=f"edit_{s['id']}",
+                )
+            ]
+        )
 
     await update.message.reply_text(
         i18n.get_text(lang, "edit_prompt"),
@@ -696,13 +754,13 @@ async def callback_edit_pick(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not search:
         await query.edit_message_text(i18n.get_text(lang, "search_not_found"))
         from telegram.ext import ConversationHandler
+
         return ConversationHandler.END
 
     context.user_data["edit_search_id"] = search_id
 
     await query.edit_message_text(
-        i18n.get_text(lang, "edit_what_prompt", name=search["name"], mode=search["mode"]),
-        parse_mode="HTML"
+        i18n.get_text(lang, "edit_what_prompt", name=search["name"], mode=search["mode"]), parse_mode="HTML"
     )
     return EDIT_AWAIT_CHANGES
 
@@ -710,6 +768,7 @@ async def callback_edit_pick(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_edit_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Process the user's edit description via LLM and update the search."""
     from telegram.ext import ConversationHandler
+
     lang = get_lang(update)
 
     search_id = context.user_data.get("edit_search_id")
@@ -780,14 +839,43 @@ async def handle_edit_changes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # Regenerate URLs
         url_entries = [
-            {"url": product_to_url(p, new_max_price, new_location, new_location_radius, new_base_path, new_condition, new_min_price, new_custom_filters), "product_name": p}
+            {
+                "url": product_to_url(
+                    p,
+                    new_max_price,
+                    new_location,
+                    new_location_radius,
+                    new_base_path,
+                    new_condition,
+                    new_min_price,
+                    new_custom_filters,
+                ),
+                "product_name": p,
+            }
             for p in new_products
         ]
         if new_name:
-            broad_url = product_to_url(new_name, new_max_price, new_location, new_location_radius, new_base_path, new_condition, new_min_price, new_custom_filters)
+            broad_url = product_to_url(
+                new_name,
+                new_max_price,
+                new_location,
+                new_location_radius,
+                new_base_path,
+                new_condition,
+                new_min_price,
+                new_custom_filters,
+            )
             url_entries.append({"url": broad_url, "product_name": f"[broad] {new_name}"})
         if new_browse_cat:
-            browse_url = category_browse_url(new_browse_cat, new_max_price, new_min_price, new_condition, new_location, new_location_radius, new_custom_filters)
+            browse_url = category_browse_url(
+                new_browse_cat,
+                new_max_price,
+                new_min_price,
+                new_condition,
+                new_location,
+                new_location_radius,
+                new_custom_filters,
+            )
             url_entries.append({"url": browse_url, "product_name": f"[browse] {new_browse_cat.split('/')[-1]}"})
         db.replace_search_urls(search_id, url_entries)
 
@@ -834,7 +922,9 @@ async def handle_edit_changes(update: Update, context: ContextTypes.DEFAULT_TYPE
             refined.get("min_price"),
         )
         validated_url, _ = await validate_and_correct_url(
-            raw_url, refined.get("keyword", ""), {"name": refined.get("name"), "max_price": refined.get("max_price")},
+            raw_url,
+            refined.get("keyword", ""),
+            {"name": refined.get("name"), "max_price": refined.get("max_price")},
         )
 
         db.update_search(
@@ -872,6 +962,7 @@ async def handle_edit_changes(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ============================================================================
 # RESUME (slopsearch review)
 # ============================================================================
+
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/resume — review pending slopsearch listings."""
@@ -946,7 +1037,9 @@ async def callback_review_item(update: Update, context: ContextTypes.DEFAULT_TYP
     if action == "acc":
         db.update_search_listing(search_id, listing["listing_id"], status="accepted")
         await query.answer(i18n.get_text(lang, "review_accepted"))
-        await query.edit_message_text(i18n.get_text(lang, "review_accepted_title", title=listing['title']), parse_mode="Markdown")
+        await query.edit_message_text(
+            i18n.get_text(lang, "review_accepted_title", title=listing["title"]), parse_mode="Markdown"
+        )
 
         next_listing = db.get_next_pending_listing(search_id)
         if next_listing:
@@ -957,7 +1050,9 @@ async def callback_review_item(update: Update, context: ContextTypes.DEFAULT_TYP
     elif action == "dec":
         db.update_search_listing(search_id, listing["listing_id"], status="declined")
         await query.answer(i18n.get_text(lang, "review_declined"))
-        await query.edit_message_text(i18n.get_text(lang, "review_declined_title", title=listing['title']), parse_mode="Markdown")
+        await query.edit_message_text(
+            i18n.get_text(lang, "review_declined_title", title=listing["title"]), parse_mode="Markdown"
+        )
 
         next_listing = db.get_next_pending_listing(search_id)
         if next_listing:
@@ -998,7 +1093,9 @@ async def handle_decline_feedback(update: Update, context: ContextTypes.DEFAULT_
     db.update_search_listing(search_id, listing_id, status="declined", decline_feedback=feedback_text)
     db.add_feedback(search_id, "", "", feedback_text)
 
-    await update.message.reply_text(i18n.get_text(lang, "decline_feedback_msg", feedback=feedback_text), parse_mode="Markdown")
+    await update.message.reply_text(
+        i18n.get_text(lang, "decline_feedback_msg", feedback=feedback_text), parse_mode="Markdown"
+    )
 
     next_listing = db.get_next_pending_listing(search_id)
     if next_listing:
@@ -1019,8 +1116,7 @@ async def _finalize_review(bot, search: dict) -> None:
     if not accepted:
         await bot.send_message(
             chat_id=int(chat_id),
-            text=f"🏁 Review finished for '{search['name']}'. No items were accepted.\n"
-                 f"Now monitoring for new matches.",
+            text=f"🏁 Review finished for '{search['name']}'. No items were accepted.\nNow monitoring for new matches.",
         )
         return
 
@@ -1034,6 +1130,7 @@ async def _finalize_review(bot, search: dict) -> None:
 # ============================================================================
 # CHEAP MODE CALLBACKS
 # ============================================================================
+
 
 async def callback_cheap_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle Approve All / Skip All buttons on grouped cheap mode messages (ca_ / cs_)."""
@@ -1063,10 +1160,8 @@ async def callback_cheap_review(update: Update, context: ContextTypes.DEFAULT_TY
         stats_line = cheap_price_stats(accepted)
         stats_suffix = f"\n{stats_line}" if stats_line else ""
 
-        try:
+        with contextlib.suppress(Exception):
             await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await context.bot.send_message(
             chat_id=int(chat_id),
             text=f"✅ *Approved All ({len(associated)})*{stats_suffix}",
@@ -1077,15 +1172,14 @@ async def callback_cheap_review(update: Update, context: ContextTypes.DEFAULT_TY
     elif action == "cs":
         for sm in associated:
             db.update_search_listing(search_id, sm["listing_id"], status="declined")
-        try:
+        with contextlib.suppress(Exception):
             await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
 
 
 # ============================================================================
 # CHEAP MODE FEEDBACK REPLY
 # ============================================================================
+
 
 async def handle_feedback_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Detect replies to cheap mode listing messages and trigger product list refinement."""
@@ -1138,10 +1232,18 @@ async def handle_feedback_reply(update: Update, context: ContextTypes.DEFAULT_TY
     condition = search.get("condition")
     custom_filters = _get_custom_filters(search)
     db.update_search(search_id, products=new_products)
-    db.replace_search_urls(search_id, [
-        {"url": product_to_url(p, max_price, location, location_radius, base_path, condition, min_price, custom_filters), "product_name": p}
-        for p in new_products
-    ])
+    db.replace_search_urls(
+        search_id,
+        [
+            {
+                "url": product_to_url(
+                    p, max_price, location, location_radius, base_path, condition, min_price, custom_filters
+                ),
+                "product_name": p,
+            }
+            for p in new_products
+        ],
+    )
 
     product_list = "\n".join(f"  • {p}" for p in new_products)
     await msg.reply_text(
@@ -1154,10 +1256,11 @@ async def handle_feedback_reply(update: Update, context: ContextTypes.DEFAULT_TY
 # /ADVISOR — SEARCH ADVISOR
 # ============================================================================
 
+
 async def cmd_advisor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Run the search advisor for a specific search."""
     chat_id = str(update.effective_chat.id)
-    lang = i18n.get_language(chat_id)
+    i18n.get_language(chat_id)
 
     searches = db.get_searches_by_chat(chat_id)
     active = [s for s in searches if s["status"] in ("monitoring", "reviewing")]
@@ -1171,10 +1274,7 @@ async def cmd_advisor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     # Multiple searches — let user pick
-    keyboard = [
-        [InlineKeyboardButton(s["name"], callback_data=f"adv_{s['id']}")]
-        for s in active
-    ]
+    keyboard = [[InlineKeyboardButton(s["name"], callback_data=f"adv_{s['id']}")] for s in active]
     await update.message.reply_text(
         "Which search do you want advice on?",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1194,7 +1294,7 @@ async def _run_advisor(update: Update, context: ContextTypes.DEFAULT_TYPE, searc
     from advisor import generate_advice
     from formatters import format_advisor_report
 
-    chat_id = str(update.effective_chat.id)
+    str(update.effective_chat.id)
 
     # Send "working" indicator
     msg = update.message or update.callback_query.message
@@ -1213,7 +1313,7 @@ async def _run_advisor(update: Update, context: ContextTypes.DEFAULT_TYPE, searc
     keyboard = []
     for i, s in enumerate(suggestions):
         stype = s.get("type", "")
-        value = s.get("value", "")
+        s.get("value", "")
         label = s.get("label", "?")
         if stype in ("add_product", "remove_product", "raise_price", "expand_location"):
             callback = f"advapply_{search_id}_{i}"
@@ -1231,7 +1331,7 @@ async def _run_advisor(update: Update, context: ContextTypes.DEFAULT_TYPE, searc
 
 async def callback_advisor_apply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Apply a single advisor suggestion."""
-    from url_builder import product_to_url, category_browse_url
+    from url_builder import category_browse_url, product_to_url
 
     query = update.callback_query
     await query.answer()
@@ -1272,7 +1372,9 @@ async def callback_advisor_apply(update: Update, context: ContextTypes.DEFAULT_T
         products.append(value)
         db.update_search(search_id, products=products)
         # Add new URL
-        new_url = product_to_url(value, max_price, location, location_radius, base_path, condition, min_price, custom_filters)
+        new_url = product_to_url(
+            value, max_price, location, location_radius, base_path, condition, min_price, custom_filters
+        )
         db.add_search_url(search_id, new_url, value)
         result_text = f"➕ Added *{value}* to product list."
 
@@ -1295,15 +1397,23 @@ async def callback_advisor_apply(update: Update, context: ContextTypes.DEFAULT_T
             pname = u.get("product_name", "")
             if pname.startswith("[browse]"):
                 new_url = category_browse_url(
-                    browse_category or base_path, max_price=new_price, min_price=min_price,
-                    condition=condition, location=location, location_radius=location_radius,
+                    browse_category or base_path,
+                    max_price=new_price,
+                    min_price=min_price,
+                    condition=condition,
+                    location=location,
+                    location_radius=location_radius,
                     custom_filters=custom_filters,
                 )
             elif pname.startswith("[broad]"):
                 broad_kw = pname.replace("[broad] ", "")
-                new_url = product_to_url(broad_kw, new_price, location, location_radius, base_path, condition, min_price, custom_filters)
+                new_url = product_to_url(
+                    broad_kw, new_price, location, location_radius, base_path, condition, min_price, custom_filters
+                )
             else:
-                new_url = product_to_url(pname, new_price, location, location_radius, base_path, condition, min_price, custom_filters)
+                new_url = product_to_url(
+                    pname, new_price, location, location_radius, base_path, condition, min_price, custom_filters
+                )
             db.update_search_url(u["id"], url=new_url)
         result_text = f"💰 Max price raised to *{new_price} PLN*."
 
@@ -1315,13 +1425,19 @@ async def callback_advisor_apply(update: Update, context: ContextTypes.DEFAULT_T
             pname = u.get("product_name", "")
             if pname.startswith("[browse]"):
                 new_url = category_browse_url(
-                    browse_category or base_path, max_price=max_price, min_price=min_price,
-                    condition=condition, location=value, location_radius=None,
+                    browse_category or base_path,
+                    max_price=max_price,
+                    min_price=min_price,
+                    condition=condition,
+                    location=value,
+                    location_radius=None,
                     custom_filters=custom_filters,
                 )
             elif pname.startswith("[broad]"):
                 broad_kw = pname.replace("[broad] ", "")
-                new_url = product_to_url(broad_kw, max_price, value, None, base_path, condition, min_price, custom_filters)
+                new_url = product_to_url(
+                    broad_kw, max_price, value, None, base_path, condition, min_price, custom_filters
+                )
             else:
                 new_url = product_to_url(pname, max_price, value, None, base_path, condition, min_price, custom_filters)
             db.update_search_url(u["id"], url=new_url)
@@ -1344,9 +1460,7 @@ async def callback_advisor_apply(update: Update, context: ContextTypes.DEFAULT_T
             if stype_i in ("add_product", "remove_product", "raise_price", "expand_location"):
                 keyboard.append([InlineKeyboardButton(f"✅ Apply: {label}", callback_data=f"advapply_{search_id}_{i}")])
 
-    try:
+    with contextlib.suppress(Exception):
         await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
-    except Exception:
-        pass
 
     await query.message.reply_text(result_text, parse_mode="Markdown")

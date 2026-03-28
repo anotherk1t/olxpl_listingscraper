@@ -1,10 +1,11 @@
 import json
-import os
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 LOCALES = {}
+
 
 def load_locales():
     """Load all JSON files from the locales directory."""
@@ -17,13 +18,15 @@ def load_locales():
         if filename.endswith(".json"):
             lang_code = filename[:-5]
             try:
-                with open(os.path.join(locales_dir, filename), "r", encoding="utf-8") as f:
+                with open(os.path.join(locales_dir, filename), encoding="utf-8") as f:
                     LOCALES[lang_code] = json.load(f)
             except Exception as e:
                 logger.error(f"Failed to load locale {filename}: {e}")
 
+
 # Load immediately on import
 load_locales()
+
 
 def get_text(lang: str, key: str, **kwargs) -> str:
     """
@@ -33,13 +36,13 @@ def get_text(lang: str, key: str, **kwargs) -> str:
     """
     if lang not in LOCALES:
         lang = "en"
-    
+
     text = LOCALES.get(lang, {}).get(key)
-    
+
     if text is None:
         # Fallback to english
         text = LOCALES.get("en", {}).get(key, key)
-    
+
     if kwargs:
         try:
             return text.format(**kwargs)

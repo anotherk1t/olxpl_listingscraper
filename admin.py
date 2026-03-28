@@ -8,12 +8,11 @@ Non-admin users get no response (silent ignore).
 import logging
 import os
 import time
-from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import ADMIN_CHAT_ID, CONFIG, LLM_PROXY_URL
+from config import ADMIN_CHAT_ID, CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +21,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 _bot_start_time: float = time.time()
-_last_scrape_time: Optional[float] = None
-_last_scrape_duration: Optional[float] = None
-_last_error: Optional[str] = None
+_last_scrape_time: float | None = None
+_last_scrape_duration: float | None = None
+_last_error: str | None = None
 _recent_errors: dict[str, float] = {}  # msg_hash -> timestamp (for dedup)
 _admin_prefs: dict[str, bool] = {"verbose_logs": False, "errors_only": True}
 
@@ -97,6 +96,7 @@ async def _send_admin_message(bot, message: str, level: str) -> None:
 # SCRAPE TRACKING
 # ============================================================================
 
+
 def record_scrape(duration: float) -> None:
     """Record the last scrape cycle time and duration."""
     global _last_scrape_time, _last_scrape_duration
@@ -107,6 +107,7 @@ def record_scrape(duration: float) -> None:
 # ============================================================================
 # /health COMMAND
 # ============================================================================
+
 
 async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Report bot health stats. Admin-only."""
@@ -134,13 +135,16 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     else:
         scrape_str = "Not yet"
 
-    # Proxy status
-    import requests
+    # Copilot CLI status
+    import subprocess as _sp
+
     try:
-        resp = requests.get(LLM_PROXY_URL.replace("/ask", "/health"), timeout=3)
-        proxy_status = "✅ Reachable" if resp.status_code == 200 else f"⚠️ HTTP {resp.status_code}"
+        r = _sp.run(["copilot", "--version"], capture_output=True, text=True, timeout=5)
+        llm_status = f"✅ {r.stdout.strip()}" if r.returncode == 0 else "⚠️ CLI error"
+    except FileNotFoundError:
+        llm_status = "❌ Not installed"
     except Exception:
-        proxy_status = "❌ Unreachable"
+        llm_status = "❌ Unreachable"
 
     # DB size
     db_path = CONFIG.DB_PATH
@@ -153,6 +157,7 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     # Memory
     try:
         import resource
+
         mem_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
         mem_str = f"{mem_mb:.1f} MB"
     except Exception:
@@ -165,7 +170,7 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"⏱ Uptime: {hours}h {minutes}m {seconds}s\n"
         f"📊 Active searches:\n{search_lines}\n"
         f"🔄 Last scrape: {scrape_str}\n"
-        f"🌐 Proxy: {proxy_status}\n"
+        f"🌐 LLM: {llm_status}\n"
         f"💾 DB: {db_str}\n"
         f"🧠 Memory: {mem_str}\n"
         f"❌ Last error: {error_str}"
@@ -176,6 +181,7 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 # ============================================================================
 # /admin COMMAND
 # ============================================================================
+
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin toggle commands. Admin-only."""

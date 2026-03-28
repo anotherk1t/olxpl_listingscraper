@@ -1,0 +1,28 @@
+[project]
+name = "olx-scraper"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",    # line too long — handled by formatter
+    "E741",    # ambiguous variable name `l` — common in list comprehensions
+    "B008",    # function call in default arg (common in telegram handlers)
+    "SIM108",  # ternary — readability preference
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "config", "db", "llm", "scraper", "handlers", "jobs",
+    "admin", "advisor", "formatters", "url_builder",
+    "location_filter", "i18n",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -5,7 +5,6 @@ Helpers for building Telegram message text.
 """
 
 import re
-import i18n
 
 
 def parse_price(price_str: str) -> float:
@@ -77,7 +76,10 @@ def build_cheap_confirmation(data: dict, lang: str = "en") -> str:
     filters_line = ""
     if custom_filters:
         filter_labels = {
-            "enginesize": "Engine", "year": "Year", "milage": "Mileage", "enginepower": "Power",
+            "enginesize": "Engine",
+            "year": "Year",
+            "milage": "Mileage",
+            "enginepower": "Power",
         }
         parts = []
         for key, val in custom_filters.items():
@@ -100,17 +102,16 @@ def build_cheap_confirmation(data: dict, lang: str = "en") -> str:
 
 def format_monitor_listing(search_name: str, listing: dict) -> str:
     """Format a new monitor-mode listing notification."""
-    return (
-        f"✨ *New: {search_name}*\n\n"
-        f"*{listing['title']}*\n\n"
-        f"💰 {listing['price']}\n"
-        f"🔗 [View]({listing['url']})"
-    )
+    return f"✨ *New: {search_name}*\n\n*{listing['title']}*\n\n💰 {listing['price']}\n🔗 [View]({listing['url']})"
 
 
 def format_cheap_listing(
-    search_name: str, product: str, listing: dict,
-    details: dict, summary: str, stats_line: str,
+    search_name: str,
+    product: str,
+    listing: dict,
+    details: dict,
+    summary: str,
+    stats_line: str,
 ) -> str:
     """Format a cheap-mode listing message."""
     parts = [
@@ -134,8 +135,11 @@ def format_cheap_listing(
 
 
 def format_cheap_product_group(
-    search_name: str, product: str,
-    listings: list[dict], details_list: list[dict], verdicts: list[dict],
+    search_name: str,
+    product: str,
+    listings: list[dict],
+    details_list: list[dict],
+    verdicts: list[dict],
     stats_line: str,
 ) -> str:
     """Format a grouped message for all passed listings of one product."""
@@ -159,7 +163,7 @@ def format_cheap_product_group(
         parts.append(stats_line)
     parts.append("")  # blank line
 
-    for i, (listing, det, verdict) in enumerate(zip(listings, details_list, verdicts), 1):
+    for i, (listing, det, verdict) in enumerate(zip(listings, details_list, verdicts, strict=False), 1):
         location = det.get("location", "")
         condition = det.get("condition", "")
         summary = verdict.get("summary", "")
@@ -190,8 +194,7 @@ def format_market_summary(search_name: str, accepted_count: int, prices: list[fl
     """Format market summary after finishing review."""
     if not prices:
         return (
-            f"🏁 Review finished for '{search_name}'. "
-            f"Accepted {accepted_count} items.\nNow monitoring for new matches."
+            f"🏁 Review finished for '{search_name}'. Accepted {accepted_count} items.\nNow monitoring for new matches."
         )
     avg_price = sum(prices) / len(prices)
     min_price = min(prices)
@@ -221,9 +224,10 @@ def format_advisor_report(advice: dict) -> str:
 
     if suggestions:
         lines.append("\n*Suggestions:*")
-        for i, s in enumerate(suggestions):
-            emoji = {"add_product": "➕", "remove_product": "➖",
-                     "raise_price": "💰", "expand_location": "📍"}.get(s.get("type"), "💡")
+        for _i, s in enumerate(suggestions):
+            emoji = {"add_product": "➕", "remove_product": "➖", "raise_price": "💰", "expand_location": "📍"}.get(
+                s.get("type"), "💡"
+            )
             lines.append(f"{emoji} {s.get('label', '?')}")
             lines.append(f"   _{s.get('reason', '')}_")
     else:

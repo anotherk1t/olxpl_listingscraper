@@ -5,6 +5,7 @@ Assemble, validate, and self-correct OLX search URLs.
 Uses cached categories from config to avoid re-reading files.
 """
 
+import contextlib
 import json
 import logging
 import re
@@ -13,16 +14,21 @@ import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 
-from config import CONFIG, HTTP_HEADERS, OLX_CATEGORIES, OLX_URL_CONTEXT
+from config import CONFIG, HTTP_HEADERS, OLX_CATEGORIES
 from llm import ask_llm
-from scraper import _parse_json_ld, _parse_html_cards
+from scraper import _parse_html_cards, _parse_json_ld
 
 logger = logging.getLogger(__name__)
 
 
 def assemble_url(
-    base_path: str, keyword: str, max_price=None, condition: str = None,
-    location: str = None, location_radius: int = None, min_price=None,
+    base_path: str,
+    keyword: str,
+    max_price=None,
+    condition: str = None,
+    location: str = None,
+    location_radius: int = None,
+    min_price=None,
 ) -> str:
     """Build a clean OLX search URL from components."""
     slug = keyword.strip().lower().replace(" ", "-")
@@ -33,15 +39,11 @@ def assemble_url(
         url = f"https://www.olx.pl/{path}/q-{slug}/"
     params = {}
     if min_price is not None:
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             params["search[filter_float_price:from]"] = int(float(min_price))
-        except (ValueError, TypeError):
-            pass
     if max_price:
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             params["search[filter_float_price:to]"] = int(float(max_price))
-        except (ValueError, TypeError):
-            pass
     if condition in ("new", "used"):
         params["search[filter_enum_state][0]"] = condition
     if location_radius:
@@ -52,13 +54,17 @@ def assemble_url(
 
 
 def product_to_url(
-    product_name: str, max_price=None,
-    location: str = None, location_radius: int = None,
-    base_path: str = None, condition: str = None,
-    min_price=None, custom_filters: dict = None,
+    product_name: str,
+    max_price=None,
+    location: str = None,
+    location_radius: int = None,
+    base_path: str = None,
+    condition: str = None,
+    min_price=None,
+    custom_filters: dict = None,
 ) -> str:
     """Convert a product model name to an OLX search URL.
-    
+
     base_path: OLX category path (e.g. 'elektronika/komputery'). Defaults to 'oferty'.
     condition: 'new' or 'used' — adds state filter param.
     custom_filters: extra OLX search params, e.g. {"enginesize:to": 125, "year:from": 2010}.
@@ -91,8 +97,12 @@ def product_to_url(
 
 
 def category_browse_url(
-    category_path: str, max_price=None, min_price=None,
-    condition: str = None, location: str = None, location_radius: int = None,
+    category_path: str,
+    max_price=None,
+    min_price=None,
+    condition: str = None,
+    location: str = None,
+    location_radius: int = None,
     custom_filters: dict = None,
 ) -> str:
     """Build a keyword-less OLX browse URL for a leaf category, sorted by newest.
@@ -106,15 +116,11 @@ def category_browse_url(
         url = f"{CONFIG.OLX_BASE_URL}/{path}/"
     params = {"search[order]": "created_at:desc"}
     if min_price is not None:
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             params["search[filter_float_price:from]"] = int(float(min_price))
-        except (ValueError, TypeError):
-            pass
     if max_price is not None:
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             params["search[filter_float_price:to]"] = int(float(max_price))
-        except (ValueError, TypeError):
-            pass
     if condition in ("new", "used"):
         params["search[filter_enum_state][0]"] = condition
     if location_radius:

@@ -10,16 +10,18 @@ from dataclasses import dataclass
 # CONFIGURATION CONSTANTS
 # ============================================================================
 
+
 @dataclass(frozen=True)
 class Config:
     """Application configuration constants."""
+
     # Database
     DB_PATH: str = "data/olx.db"
     DATA_DIR: str = "data"
 
     # Timing (seconds)
-    CHECK_INTERVAL: int = 300       # 5 minutes — unified scrape cycle
-    MONITOR_INTERVAL: int = 1200    # 20 minutes — sold detection
+    CHECK_INTERVAL: int = 300  # 5 minutes — unified scrape cycle
+    MONITOR_INTERVAL: int = 1200  # 20 minutes — sold detection
     RATE_LIMIT_DELAY: int = 5
     PAGE_SCRAPE_DELAY: int = 3
 
@@ -46,10 +48,7 @@ CONFIG = Config()
 # ============================================================================
 
 HTTP_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"),
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
@@ -60,7 +59,6 @@ HTTP_HEADERS = {
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-LLM_PROXY_URL = os.getenv("LLM_PROXY_URL", "http://host.docker.internal:3000/ask")
 
 if not TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
@@ -86,10 +84,11 @@ if not TOKEN:
 # CACHED REFERENCE DATA (loaded once at import time)
 # ============================================================================
 
+
 def _load_categories() -> list:
     """Load valid OLX base paths from olx_categories.json (once)."""
     try:
-        with open("olx_categories.json", "r", encoding="utf-8") as f:
+        with open("olx_categories.json", encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return ["oferty"]
@@ -98,7 +97,7 @@ def _load_categories() -> list:
 def _load_url_context() -> str:
     """Load OLX URL structure reference for LLM prompts (once)."""
     try:
-        with open("olx_url_structure.md", "r", encoding="utf-8") as f:
+        with open("olx_url_structure.md", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return ""

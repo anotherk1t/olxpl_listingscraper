@@ -10,8 +10,6 @@ slug to a set of cities within the radius.
 """
 
 import logging
-import re
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,50 +17,131 @@ logger = logging.getLogger(__name__)
 # These cover the typical cities within a 25-40 km radius
 _AGGLOMERATIONS: dict[str, set[str]] = {
     "gdansk": {
-        "gdańsk", "sopot", "gdynia", "rumia", "reda", "wejherowo",
-        "pruszcz gdański", "tczew", "starogard gdański", "żukowo",
-        "kolbudy", "kowale", "osowa", "matarnia", "jasień",
+        "gdańsk",
+        "sopot",
+        "gdynia",
+        "rumia",
+        "reda",
+        "wejherowo",
+        "pruszcz gdański",
+        "tczew",
+        "starogard gdański",
+        "żukowo",
+        "kolbudy",
+        "kowale",
+        "osowa",
+        "matarnia",
+        "jasień",
     },
     "katowice": {
-        "katowice", "sosnowiec", "gliwice", "zabrze", "bytom",
-        "ruda śląska", "tychy", "dąbrowa górnicza", "chorzów",
-        "jaworzno", "mysłowice", "siemianowice śląskie",
-        "piekary śląskie", "tarnowskie góry", "będzin", "mikołów",
-        "czeladź", "knurów", "łaziska górne",
+        "katowice",
+        "sosnowiec",
+        "gliwice",
+        "zabrze",
+        "bytom",
+        "ruda śląska",
+        "tychy",
+        "dąbrowa górnicza",
+        "chorzów",
+        "jaworzno",
+        "mysłowice",
+        "siemianowice śląskie",
+        "piekary śląskie",
+        "tarnowskie góry",
+        "będzin",
+        "mikołów",
+        "czeladź",
+        "knurów",
+        "łaziska górne",
     },
     "warszawa": {
-        "warszawa", "piaseczno", "pruszków", "legionowo", "wołomin",
-        "otwock", "marki", "ząbki", "zielonka", "kobyłka",
-        "józefów", "konstancin-jeziorna", "łomianki", "piastów",
-        "grodzisk mazowiecki", "nadarzyn", "jabłonna", "izabelin",
+        "warszawa",
+        "piaseczno",
+        "pruszków",
+        "legionowo",
+        "wołomin",
+        "otwock",
+        "marki",
+        "ząbki",
+        "zielonka",
+        "kobyłka",
+        "józefów",
+        "konstancin-jeziorna",
+        "łomianki",
+        "piastów",
+        "grodzisk mazowiecki",
+        "nadarzyn",
+        "jabłonna",
+        "izabelin",
     },
     "krakow": {
-        "kraków", "wieliczka", "niepołomice", "skawina", "zabierzów",
-        "zielonki", "mogilany", "michałowice", "świątniki górne",
-        "liszki", "kocmyrzów-luborzyca",
+        "kraków",
+        "wieliczka",
+        "niepołomice",
+        "skawina",
+        "zabierzów",
+        "zielonki",
+        "mogilany",
+        "michałowice",
+        "świątniki górne",
+        "liszki",
+        "kocmyrzów-luborzyca",
     },
     "wroclaw": {
-        "wrocław", "siechnice", "kobierzyce", "kąty wrocławskie",
-        "długołęka", "oborniki śląskie", "sobótka", "jelcz-laskowice",
-        "oleśnica", "trzebnica",
+        "wrocław",
+        "siechnice",
+        "kobierzyce",
+        "kąty wrocławskie",
+        "długołęka",
+        "oborniki śląskie",
+        "sobótka",
+        "jelcz-laskowice",
+        "oleśnica",
+        "trzebnica",
     },
     "poznan": {
-        "poznań", "luboń", "swarzędz", "komorniki", "mosina",
-        "puszczykowo", "czerwonak", "suchy las", "dopiewo", "tarnowo podgórne",
-        "rokietnica", "murowana goślina",
+        "poznań",
+        "luboń",
+        "swarzędz",
+        "komorniki",
+        "mosina",
+        "puszczykowo",
+        "czerwonak",
+        "suchy las",
+        "dopiewo",
+        "tarnowo podgórne",
+        "rokietnica",
+        "murowana goślina",
     },
     "lodz": {
-        "łódź", "pabianice", "zgierz", "aleksandrów łódzki",
-        "konstantynów łódzki", "rzgów", "tuszyn", "koluszki",
+        "łódź",
+        "pabianice",
+        "zgierz",
+        "aleksandrów łódzki",
+        "konstantynów łódzki",
+        "rzgów",
+        "tuszyn",
+        "koluszki",
     },
     "szczecin": {
-        "szczecin", "police", "stargard", "goleniów", "gryfino",
+        "szczecin",
+        "police",
+        "stargard",
+        "goleniów",
+        "gryfino",
     },
     "lublin": {
-        "lublin", "świdnik", "lubartów", "łęczna", "puławy",
+        "lublin",
+        "świdnik",
+        "lubartów",
+        "łęczna",
+        "puławy",
     },
     "bydgoszcz": {
-        "bydgoszcz", "toruń", "inowrocław", "solec kujawski",
+        "bydgoszcz",
+        "toruń",
+        "inowrocław",
+        "solec kujawski",
     },
 }
 
@@ -99,14 +178,26 @@ def _normalize(text: str) -> str:
 # Polish voivodeships — OLX reliably filters by region when it's in the URL path,
 # so post-scrape filtering is unnecessary and harmful (city names never match).
 _VOIVODESHIPS: set[str] = {
-    "dolnoslaskie", "kujawsko-pomorskie", "lubelskie", "lubuskie",
-    "lodzkie", "malopolskie", "mazowieckie", "opolskie", "podkarpackie",
-    "podlaskie", "pomorskie", "slaskie", "swietokrzyskie",
-    "warminsko-mazurskie", "wielkopolskie", "zachodniopomorskie",
+    "dolnoslaskie",
+    "kujawsko-pomorskie",
+    "lubelskie",
+    "lubuskie",
+    "lodzkie",
+    "malopolskie",
+    "mazowieckie",
+    "opolskie",
+    "podkarpackie",
+    "podlaskie",
+    "pomorskie",
+    "slaskie",
+    "swietokrzyskie",
+    "warminsko-mazurskie",
+    "wielkopolskie",
+    "zachodniopomorskie",
 }
 
 
-def get_allowed_cities(location_slug: Optional[str], location_radius: Optional[int]) -> Optional[set[str]]:
+def get_allowed_cities(location_slug: str | None, location_radius: int | None) -> set[str] | None:
     """
     Return a set of allowed city names for the given location.
     Returns None if no location filtering should be applied.
@@ -132,7 +223,7 @@ def get_allowed_cities(location_slug: Optional[str], location_radius: Optional[i
     return {slug}
 
 
-def filter_by_location(listings: list[dict], location_slug: Optional[str], location_radius: Optional[int]) -> list[dict]:
+def filter_by_location(listings: list[dict], location_slug: str | None, location_radius: int | None) -> list[dict]:
     """
     Filter listings by location. Each listing should have a "location" field
     like "Gdańsk, Śródmieście" or "Sopot".

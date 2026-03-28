@@ -1,69 +1,112 @@
 """
 OLX Scraper — LLM Integration
 
-All LLM calls go through the Copilot CLI proxy (Node.js sidecar on the host).
+Calls the Copilot CLI directly via subprocess.
 """
 
 import asyncio
 import json
 import logging
+import os
 import re
-from typing import Optional
+import subprocess
+import time
 
-import requests as _requests
-
-from config import CONFIG, LLM_PROXY_URL
+from config import CONFIG
 
 logger = logging.getLogger(__name__)
 
+COPILOT_MODEL = os.getenv("COPILOT_MODEL", "gpt-5-mini")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 # ============================================================================
-# COPILOT CLI PROXY CALL
+# COPILOT CLI (direct subprocess)
 # ============================================================================
+
+
+def _get_mcp_config_path() -> str:
+    return os.path.join(SCRIPT_DIR, "copilot-mcp-config.json")
+
+
+def _strip_copilot_noise(text: str) -> str:
+    """Remove residual Copilot CLI UI chrome from output."""
+    # "Total usage est:" footer
+    footer = re.search(r"\n\s*Total usage est:.*", text, flags=re.DOTALL)
+    if footer:
+        text = text[: footer.start()]
+    # Tool-use indicator lines (● ... └ ...)
+    text = re.sub(r"^● .+\n(?:\s+└ .+\n?)*", "", text, flags=re.MULTILINE)
+    return text.strip()
+
 
 def _ask_llm_sync(
     prompt: str,
     *,
-    model: str = None,
+    model: str | None = None,
     mcp: bool = False,
     timeout: int = 120,
+    retries: int = 2,
 ) -> str:
-    """Synchronous Copilot proxy call (runs in thread via ask_llm)."""
-    try:
-        body = {"prompt": prompt}
-        if model:
-            body["model"] = model
-        if mcp:
-            body["mcp"] = True
-        resp = _requests.post(
-            LLM_PROXY_URL,
-            json=body,
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("error"):
-            logger.warning(f"LLM proxy warning: {data['error']}")
-        return data.get("response", "")
-    except _requests.exceptions.ConnectionError:
-        logger.error(f"LLM proxy unreachable at {LLM_PROXY_URL}")
-        return ""
-    except _requests.exceptions.Timeout:
-        logger.error("LLM proxy request timed out")
-        return ""
-    except Exception as e:
-        logger.error(f"Unexpected error calling LLM proxy: {e}")
-        return ""
+    """Call Copilot CLI synchronously with retries."""
+    cmd = [
+        "copilot",
+        "-p",
+        prompt,
+        "--allow-all-tools",
+        "--output-format",
+        "text",
+        "-s",
+        "--model",
+        model or COPILOT_MODEL,
+    ]
+    if mcp:
+        mcp_config = _get_mcp_config_path()
+        if os.path.exists(mcp_config):
+            cmd.extend(["--additional-mcp-config", f"@{mcp_config}"])
+
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            logger.debug(f"Copilot CLI call (attempt {attempt + 1}/{retries + 1})")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=SCRIPT_DIR,
+            )
+            if result.stderr:
+                preview = result.stderr.strip()[:300]
+                if preview:
+                    logger.debug(f"Copilot stderr: {preview}")
+            if result.returncode != 0:
+                raise RuntimeError(f"Copilot CLI exited {result.returncode}: {result.stderr[:500]}")
+            return _strip_copilot_noise(result.stdout)
+
+        except subprocess.TimeoutExpired as exc:
+            last_error = exc
+            logger.warning(f"Copilot timed out (attempt {attempt + 1}/{retries + 1})")
+        except Exception as exc:
+            last_error = exc
+            logger.warning(f"Copilot failed (attempt {attempt + 1}/{retries + 1}): {exc}")
+
+        if attempt < retries:
+            wait = 10 * (attempt + 1)
+            time.sleep(wait)
+
+    logger.error(f"Copilot CLI failed after {retries + 1} attempts: {last_error}")
+    return ""
 
 
 async def ask_llm(
     prompt: str,
     *,
-    model: str = None,
+    model: str | None = None,
     mcp: bool = False,
     timeout: int = 120,
 ) -> str:
-    """Non-blocking Copilot proxy call — runs sync HTTP in a thread."""
+    """Non-blocking Copilot CLI call — runs subprocess in a thread."""
     return await asyncio.to_thread(
         _ask_llm_sync,
         prompt,
@@ -77,6 +120,7 @@ async def ask_llm(
 # BATCH LLM FILTER (slopsearch two-stage)
 # ============================================================================
 
+
 async def _llm_batch_call(batch: list, kw_str: str, with_details: bool) -> list:
     """Send one batch to the LLM, return items that pass filtering."""
     lines = []
@@ -85,16 +129,16 @@ async def _llm_batch_call(batch: list, kw_str: str, with_details: bool) -> list:
             cond = f" | Condition: {item['condition']}" if item.get("condition") else ""
             desc = item.get("description", "")
             desc_part = f" | {desc[:120]}" if desc else ""
-            lines.append(f"{j+1}. [{item['price']}] {item['title']}{cond}{desc_part}")
+            lines.append(f"{j + 1}. [{item['price']}] {item['title']}{cond}{desc_part}")
         else:
-            lines.append(f"{j+1}. [{item['price']}] {item['title']}")
+            lines.append(f"{j + 1}. [{item['price']}] {item['title']}")
 
     prompt = (
         f"You are filtering OLX.pl listings for a buyer.\n"
         f"Requirements: {kw_str}\n\n"
         f"Listings:\n" + "\n".join(lines) + "\n\n"
-        f"Reply with ONLY a comma-separated list of the numbers that match the requirements "
-        f"(e.g. '1,3,5'). If none match, reply with '0'. No explanation."
+        "Reply with ONLY a comma-separated list of the numbers that match the requirements "
+        "(e.g. '1,3,5'). If none match, reply with '0'. No explanation."
     )
     response = (await ask_llm(prompt)).strip()
     if response == "0" or not response:
@@ -115,6 +159,7 @@ async def batch_llm_filter(listings: list, keywords: list) -> list:
     Returns items that pass both stages.
     """
     import concurrent.futures
+
     from scraper import fetch_listing_details
 
     if not listings:
@@ -139,8 +184,7 @@ async def batch_llm_filter(listings: list, keywords: list) -> list:
     loop = asyncio.get_event_loop()
     with concurrent.futures.ThreadPoolExecutor(max_workers=CONFIG.DETAIL_WORKERS) as executor:
         futures = {
-            item["url"]: loop.run_in_executor(executor, fetch_listing_details, item["url"])
-            for item in stage1_passed
+            item["url"]: loop.run_in_executor(executor, fetch_listing_details, item["url"]) for item in stage1_passed
         }
         for item in stage1_passed:
             item.update(await futures[item["url"]])
@@ -161,11 +205,15 @@ async def batch_llm_filter(listings: list, keywords: list) -> list:
 # CHEAP MODE SUMMARIES
 # ============================================================================
 
+
 async def get_cheap_summaries(
-    listings: list, details_list: list, original_query: str, product: str,
+    listings: list,
+    details_list: list,
+    original_query: str,
+    product: str,
 ) -> list[dict]:
     """
-    Call Gemini once for a product batch.
+    Call LLM once for a product batch.
     Returns list of {"pass": bool, "summary": str} dicts (one per listing).
     pass=False means the listing doesn't match the user's query and should be skipped.
     summary is a 2-7 word assessment.
@@ -173,17 +221,18 @@ async def get_cheap_summaries(
     if not listings:
         return []
     lines = []
-    for i, (listing, det) in enumerate(zip(listings, details_list)):
+    for i, (listing, det) in enumerate(zip(listings, details_list, strict=False)):
         cond = det.get("condition", "") or "unknown"
         desc = (det.get("description", "") or "")[:180]
-        lines.append(f"{i+1}. {listing['title']} | {listing['price']} | {cond} | {desc}")
+        lines.append(f"{i + 1}. {listing['title']} | {listing['price']} | {cond} | {desc}")
 
     is_broad_or_browse = product.startswith("[broad]") or product.startswith("[browse]")
     strictness = (
         "BE VERY STRICT. This is a broad category search, so most listings will NOT match. "
         "Only pass listings that clearly match ALL of the user's specific requirements "
         "(brand, type, features, condition). When in doubt, reject.\n"
-        if is_broad_or_browse else ""
+        if is_broad_or_browse
+        else ""
     )
 
     prompt = (
@@ -203,10 +252,7 @@ async def get_cheap_summaries(
         if match:
             results = json.loads(match.group())
             if isinstance(results, list) and len(results) == len(listings):
-                return [
-                    {"pass": bool(r.get("pass", True)), "summary": str(r.get("summary", ""))}
-                    for r in results
-                ]
+                return [{"pass": bool(r.get("pass", True)), "summary": str(r.get("summary", ""))} for r in results]
             logger.warning(
                 f"Cheap summaries: LLM returned {len(results) if isinstance(results, list) else 'non-list'} "
                 f"results for {len(listings)} listings (product: {product})"
@@ -226,12 +272,13 @@ async def get_cheap_summaries(
 # SLOPSEARCH LLM (NL query → structured search dict)
 # ============================================================================
 
+
 async def run_slopsearch_llm(
     user_query: str,
     categories: list,
     url_context: str,
     existing: dict = None,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Turn a natural language query into a structured search dict.
     If `existing` is provided, the LLM refines/modifies it.
@@ -282,7 +329,8 @@ async def run_slopsearch_llm(
 # CHEAP MODE LLM (NL query → product list)
 # ============================================================================
 
-async def run_cheap_mode_llm(user_query: str, categories: list = None) -> Optional[dict]:
+
+async def run_cheap_mode_llm(user_query: str, categories: list = None) -> dict | None:
     """
     Turn a request into a list of specific product models.
     Returns {"name": str, "products": [...], "max_price": int|None,
@@ -291,6 +339,7 @@ async def run_cheap_mode_llm(user_query: str, categories: list = None) -> Option
              "location": str|None, "location_radius": int|None} or None.
     """
     from config import OLX_CATEGORIES
+
     cats = categories or OLX_CATEGORIES
     # Build a hint showing only deep leaf categories (3+ segments) for browse_category
     leaf_cats = [c for c in cats if c.count("/") >= 2]
@@ -349,13 +398,12 @@ async def run_cheap_mode_llm(user_query: str, categories: list = None) -> Option
 
 
 async def run_cheap_feedback_llm(
-    original_query: str, current_products: list, feedback_history: list,
-) -> Optional[list]:
+    original_query: str,
+    current_products: list,
+    feedback_history: list,
+) -> list | None:
     """Refine the product list based on accumulated feedback."""
-    feedback_str = "\n".join(
-        f'- "{f["listing_title"]}" ({f["product"]}): {f["feedback"]}'
-        for f in feedback_history
-    )
+    feedback_str = "\n".join(f'- "{f["listing_title"]}" ({f["product"]}): {f["feedback"]}' for f in feedback_history)
     prompt = (
         f"You are refining a product list for an OLX.pl buyer.\n"
         f'Original request: "{original_query}"\n'

@@ -31,6 +31,7 @@ _CONDITION_MAP = {
 # PARSING
 # ============================================================================
 
+
 def _parse_json_ld(soup: BeautifulSoup) -> list[dict]:
     """Parse listings from JSON-LD structured data."""
     script = soup.find("script", {"type": "application/ld+json"})
@@ -50,12 +51,14 @@ def _parse_json_ld(soup: BeautifulSoup) -> list[dict]:
             match = re.search(r"-ID([a-zA-Z0-9]+)\.html", url)
             listing_id = match.group(1) if match else url.split("/")[-1]
 
-            listings.append({
-                "id": listing_id,
-                "title": re.sub(r"\s+", " ", offer.get("name", "")).strip(),
-                "price": f"{offer.get('price', 0)} {offer.get('priceCurrency', 'PLN')}",
-                "url": url,
-            })
+            listings.append(
+                {
+                    "id": listing_id,
+                    "title": re.sub(r"\s+", " ", offer.get("name", "")).strip(),
+                    "price": f"{offer.get('price', 0)} {offer.get('priceCurrency', 'PLN')}",
+                    "url": url,
+                }
+            )
 
         return listings
     except (json.JSONDecodeError, AttributeError):
@@ -91,13 +94,15 @@ def _parse_html_cards(soup: BeautifulSoup) -> list[dict]:
                 # Format: "Gdańsk, Śródmieście - 17 lutego 2026"
                 location = loc_text.split(" - ")[0].strip() if " - " in loc_text else loc_text
 
-            listings.append({
-                "id": listing_id,
-                "title": title_el.text.strip() if title_el else "No Title",
-                "price": price_el.text.strip() if price_el else "No Price",
-                "url": url,
-                "location": location,
-            })
+            listings.append(
+                {
+                    "id": listing_id,
+                    "title": title_el.text.strip() if title_el else "No Title",
+                    "price": price_el.text.strip() if price_el else "No Price",
+                    "url": url,
+                    "location": location,
+                }
+            )
         except Exception as e:
             logger.debug(f"Error parsing card: {e}")
 
@@ -107,6 +112,7 @@ def _parse_html_cards(soup: BeautifulSoup) -> list[dict]:
 # ============================================================================
 # SCRAPING
 # ============================================================================
+
 
 def scrape_olx_page(url: str) -> list[dict]:
     """Scrape a single OLX search page for listings."""
@@ -154,10 +160,16 @@ def scrape_olx(base_url: str, paginate: bool = False) -> list[dict]:
         query_params["page"] = [str(current_page)]
 
         new_query = urllib.parse.urlencode(query_params, doseq=True)
-        page_url = urllib.parse.urlunparse((
-            parsed_url.scheme, parsed_url.netloc, parsed_url.path,
-            parsed_url.params, new_query, parsed_url.fragment,
-        ))
+        page_url = urllib.parse.urlunparse(
+            (
+                parsed_url.scheme,
+                parsed_url.netloc,
+                parsed_url.path,
+                parsed_url.params,
+                new_query,
+                parsed_url.fragment,
+            )
+        )
 
         logger.info(f"Scraping page {current_page}: {page_url}")
         page_listings = scrape_olx_page(page_url)
@@ -187,6 +199,7 @@ def scrape_olx(base_url: str, paginate: bool = False) -> list[dict]:
 # LISTING DETAIL FETCH
 # ============================================================================
 
+
 def fetch_listing_details(url: str) -> dict:
     """Fetch a single OLX listing page and return description, condition, and location."""
     try:
@@ -202,11 +215,7 @@ def fetch_listing_details(url: str) -> dict:
         condition_uri = offers.get("itemCondition", "")
         condition_key = condition_uri.split("/")[-1] if condition_uri else ""
         condition = _CONDITION_MAP.get(condition_key, "")
-        location = (
-            offers.get("areaServed", {}).get("name", "")
-            if isinstance(offers.get("areaServed"), dict)
-            else ""
-        )
+        location = offers.get("areaServed", {}).get("name", "") if isinstance(offers.get("areaServed"), dict) else ""
         return {"description": description, "condition": condition, "location": location}
     except Exception as e:
         logger.debug(f"Could not fetch listing details from {url}: {e}")

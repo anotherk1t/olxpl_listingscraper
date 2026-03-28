@@ -4,9 +4,8 @@ Real-time marketplace monitoring with AI-powered filtering.
 """
 
 import logging
-import time
+import warnings
 
-import requests
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -15,20 +14,20 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.warnings import PTBUserWarning
 
 import db
+from admin import cmd_admin, cmd_health
 from config import (
-    ADMIN_CHAT_ID,
-    ASK_MODE,
     ASK_CHEAP_QUERY,
+    ASK_MODE,
     ASK_NAME,
     ASK_SLOPSEARCH_QUERY,
     ASK_URL,
+    CONFIG,
     CONFIRM_CHEAP_QUERY,
     CONFIRM_SLOPSEARCH_QUERY,
-    CONFIG,
     EDIT_AWAIT_CHANGES,
-    LLM_PROXY_URL,
     MODIFY_CHEAP_QUERY,
     MODIFY_SLOPSEARCH_QUERY,
     TOKEN,
@@ -66,10 +65,7 @@ from handlers import (
     handle_feedback_reply,
 )
 from jobs import detect_sold, scrape_all
-from admin import cmd_health, cmd_admin
 
-import warnings
-from telegram.warnings import PTBUserWarning
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 # Logging
@@ -83,28 +79,10 @@ logging.getLogger("telegram.ext._updater").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def _wait_for_proxy(url: str, retries: int = 6, delay: float = 5) -> None:
-    """Wait for the Copilot CLI proxy to become reachable."""
-    health_url = url.rsplit("/", 1)[0] + "/health"
-    for attempt in range(1, retries + 1):
-        try:
-            resp = requests.get(health_url, timeout=3)
-            if resp.status_code == 200:
-                logger.info(f"LLM proxy is reachable ({health_url})")
-                return
-        except requests.RequestException:
-            pass
-        logger.warning(f"LLM proxy not ready (attempt {attempt}/{retries}), retrying in {delay}s...")
-        time.sleep(delay)
-    logger.warning("LLM proxy not reachable after retries — LLM features may fail on first cycle")
-
-
 def main() -> None:
     """Initialize and run the bot."""
     db.init_db()
     logger.info("Database initialized")
-
-    _wait_for_proxy(LLM_PROXY_URL)
 
     app = Application.builder().token(TOKEN).build()
 
@@ -191,7 +169,9 @@ def main() -> None:
     # Send startup notification
     async def _on_startup(app):
         from admin import notify_admin_raw
+
         await notify_admin_raw(app.bot, "🚀 Bot started successfully")
+
     app.post_init = _on_startup
 
     # Start bot
