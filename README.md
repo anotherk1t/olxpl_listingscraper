@@ -67,31 +67,3 @@ TELEGRAM_BOT_TOKEN=test pytest -v
 | `ADMIN_CHAT_ID` | | Your Telegram chat ID for error notifications |
 | `COPILOT_MODEL` | | LLM model override (default: `gpt-5-mini`) |
 
-## CI/CD Pipeline
-
-**GitHub Actions** runs on every push/PR to `main`:
-
-1. **Lint** — `ruff check` + `ruff format --check`
-2. **Test** — `pytest` with coverage report
-3. **Build** — multi-stage Docker image
-4. **Push** — to `ghcr.io/anotherk1t/olxpl_listingscraper` (on main only)
-5. **Deploy** — SSH to Hetzner VPS, `docker compose pull && up -d`
-
-### GitHub Secrets Required
-| Secret | Description |
-|---|---|
-| `HETZNER_SSH_KEY` | ed25519 private key for VPS access |
-| `HETZNER_HOST` | VPS IP address |
-| `HETZNER_USER` | SSH username |
-| `TELEGRAM_BOT_TOKEN` | For deploy notifications |
-| `ADMIN_CHAT_ID` | For deploy notifications |
-
-### VPS Setup (one-time)
-```bash
-# On the VPS:
-mkdir -p /opt/olx-scraper/data
-cd /opt/olx-scraper
-# Create .env with TELEGRAM_BOT_TOKEN, COPILOT_GITHUB_TOKEN, ADMIN_CHAT_ID
-# Create docker-compose.yml (or clone the repo)
-# Add the GitHub Actions SSH public key to ~/.ssh/authorized_keys
-```
